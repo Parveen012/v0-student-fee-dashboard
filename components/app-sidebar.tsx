@@ -1,0 +1,134 @@
+"use client"
+
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import {
+  LayoutDashboard,
+  Users,
+  Receipt,
+  CreditCard,
+  CalendarClock,
+  Percent,
+  BarChart3,
+  Settings,
+  GraduationCap,
+} from "lucide-react"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarFooter,
+} from "@/components/ui/sidebar"
+
+const mainMenuItems = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Students", url: "/students", icon: Users },
+  { title: "Fee Structure", url: "/fee-structure", icon: Receipt },
+  { title: "Payments", url: "/payments", icon: CreditCard },
+]
+
+const managementMenuItems = [
+  { title: "Installments", url: "/installments", icon: CalendarClock },
+  { title: "Discounts", url: "/discounts", icon: Percent },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+]
+
+const settingsMenuItems = [{ title: "Settings", url: "/settings", icon: Settings }]
+
+export function AppSidebar() {
+  const pathname = usePathname()
+
+  return (
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <GraduationCap className="size-5" />
+          </div>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="text-base font-semibold text-foreground">EduFee</span>
+            <span className="text-xs text-muted-foreground">Fee Management</span>
+          </div>
+        </Link>
+      </SidebarHeader>
+
+      <SidebarContent className="px-2 py-4">
+        <SidebarGroup>
+          <SidebarGroupLabel className="px-3 text-xs font-medium text-muted-foreground">
+            Main Menu
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {mainMenuItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === item.url}
+                    tooltip={item.title}
+                    className="h-10"
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="px-3 text-xs font-medium text-muted-foreground">
+            Management
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {managementMenuItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === item.url}
+                    tooltip={item.title}
+                    className="h-10"
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border p-2">
+        <SidebarMenu>
+          {settingsMenuItems.map((item) => (
+            <SidebarMenuItem key={item.title}>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === item.url}
+                tooltip={item.title}
+                className="h-10"
+              >
+                <Link href={item.url}>
+                  <item.icon className="size-4" />
+                  <span>{item.title}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
+  )
+}
