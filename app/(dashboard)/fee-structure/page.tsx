@@ -1,7 +1,20 @@
 "use client"
 
-import { useState } from "react"
-import { Pencil, Save, X } from "lucide-react"
+import { useState, useMemo } from "react"
+import {
+  Plus,
+  Pencil,
+  Save,
+  X,
+  Trash2,
+  Calendar,
+  IndianRupee,
+  Layers,
+  Settings2,
+  FileSpreadsheet,
+  ChevronRight,
+  AlertCircle,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,122 +26,332 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { feeStructures, type FeeStructure } from "@/lib/data"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
+import { sessions, classes, feeComponents, students } from "@/lib/mock-data"
+
+// Fee by class (simulated existing fee structure)
+const feeByClass: Record<number, number> = {
+  1: 60000, 2: 60000,
+  3: 65000, 4: 65000,
+  5: 70000, 6: 70000, 7: 70000,
+  8: 75000, 9: 75000,
+  10: 85000, 11: 85000,
+}
+
+// Fee component percentages
+const feeBreakdown: Record<string, number> = {
+  tuition: 0.65,
+  transport: 0.15,
+  lab: 0.08,
+  library: 0.04,
+  sports: 0.05,
+  exam: 0.03,
+}
+
+// Format currency
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+// Installment preset options
+const installmentPresets = [
+  { value: "1", label: "Annual (1 Payment)", splits: [{ name: "Full Year", percentage: 100 }] },
+  { value: "2", label: "Semi-Annual (2 Payments)", splits: [{ name: "First Half", percentage: 50 }, { name: "Second Half", percentage: 50 }] },
+  { value: "4", label: "Quarterly (4 Payments)", splits: [
+    { name: "Q1 (Apr-Jun)", percentage: 25 },
+    { name: "Q2 (Jul-Sep)", percentage: 25 },
+    { name: "Q3 (Oct-Dec)", percentage: 25 },
+    { name: "Q4 (Jan-Mar)", percentage: 25 },
+  ]},
+  { value: "12", label: "Monthly (12 Payments)", splits: Array.from({ length: 12 }, (_, i) => ({
+    name: new Date(2024, 3 + i, 1).toLocaleString("en-IN", { month: "short" }),
+    percentage: 100 / 12,
+  }))},
+]
 
 export default function FeeStructurePage() {
-  const [structures, setStructures] = useState<FeeStructure[]>(feeStructures)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editValues, setEditValues] = useState<Partial<FeeStructure>>({})
-
-  const handleEdit = (structure: FeeStructure) => {
-    setEditingId(structure.id)
-    setEditValues({ ...structure })
-  }
-
-  const handleSave = () => {
-    if (!editingId || !editValues) return
-
-    setStructures((prev) =>
-      prev.map((s) => {
-        if (s.id === editingId) {
-          const updated = {
-            ...s,
-            ...editValues,
-            totalFee:
-              (editValues.tuitionFee || 0) +
-              (editValues.transportFee || 0) +
-              (editValues.labFee || 0) +
-              (editValues.libraryFee || 0) +
-              (editValues.sportsFee || 0),
-          }
-          return updated
-        }
-        return s
-      })
-    )
-
-    setEditingId(null)
-    setEditValues({})
-    toast.success("Fee structure updated", {
-      description: "The fee structure has been saved successfully.",
+  const [selectedSession, setSelectedSession] = useState(sessions.find(s => s.isActive)?.id.toString() || "1")
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
+  const [editingClassId, setEditingClassId] = useState<number | null>(null)
+  const [editValues, setEditValues] = useState<Record<string, number>>({})
+  
+  // Fee generation form state
+  const [selectedClasses, setSelectedClasses] = useState<number[]>([])
+  const [installmentPreset, setInstallmentPreset] = useState("4")
+  const [customInstallments, setCustomInstallments] = useState<{ name: string; percentage: number; dueDate: string }[]>([])
+  const [generationStep, setGenerationStep] = useState(1)
+  
+  // Build fee structure data from mock data
+  const feeStructureData = useMemo(() => {
+    return classes.map(cls => {
+      const totalFee = feeByClass[cls.id] || 70000
+      const studentCount = students.filter(s => s.classId === cls.id).length
+      return {
+        classId: cls.id,
+        className: `${cls.name}-${cls.section}`,
+        totalFee,
+        tuitionFee: Math.round(totalFee * feeBreakdown.tuition),
+        transportFee: Math.round(totalFee * feeBreakdown.transport),
+        labFee: Math.round(totalFee * feeBreakdown.lab),
+        libraryFee: Math.round(totalFee * feeBreakdown.library),
+        sportsFee: Math.round(totalFee * feeBreakdown.sports),
+        examFee: Math.round(totalFee * feeBreakdown.exam),
+        studentCount,
+      }
     })
+  }, [])
+  
+  // Stats
+  const stats = useMemo(() => {
+    const fees = feeStructureData.map(f => f.totalFee)
+    return {
+      avgFee: Math.round(fees.reduce((a, b) => a + b, 0) / fees.length),
+      maxFee: Math.max(...fees),
+      minFee: Math.min(...fees),
+      totalClasses: feeStructureData.length,
+      totalStudents: feeStructureData.reduce((sum, f) => sum + f.studentCount, 0),
+    }
+  }, [feeStructureData])
+  
+  // Handle edit
+  const handleEdit = (classId: number) => {
+    const structure = feeStructureData.find(f => f.classId === classId)
+    if (structure) {
+      setEditingClassId(classId)
+      setEditValues({
+        tuitionFee: structure.tuitionFee,
+        transportFee: structure.transportFee,
+        labFee: structure.labFee,
+        libraryFee: structure.libraryFee,
+        sportsFee: structure.sportsFee,
+        examFee: structure.examFee,
+      })
+    }
   }
-
-  const handleCancel = () => {
-    setEditingId(null)
+  
+  const handleSave = () => {
+    // API call would go here
+    toast.success("Fee structure updated", {
+      description: "The fee structure has been saved successfully."
+    })
+    setEditingClassId(null)
     setEditValues({})
   }
-
-  const handleInputChange = (field: keyof FeeStructure, value: string) => {
-    const numValue = parseInt(value) || 0
-    setEditValues((prev) => ({ ...prev, [field]: numValue }))
+  
+  const handleCancel = () => {
+    setEditingClassId(null)
+    setEditValues({})
   }
-
-  const calculateTotal = () => {
-    return (
-      (editValues.tuitionFee || 0) +
-      (editValues.transportFee || 0) +
-      (editValues.labFee || 0) +
-      (editValues.libraryFee || 0) +
-      (editValues.sportsFee || 0)
+  
+  const calculateEditTotal = () => {
+    return Object.values(editValues).reduce((sum, val) => sum + (val || 0), 0)
+  }
+  
+  // Class selection for fee generation
+  const handleClassToggle = (classId: number) => {
+    setSelectedClasses(prev => 
+      prev.includes(classId) 
+        ? prev.filter(id => id !== classId)
+        : [...prev, classId]
     )
   }
-
+  
+  const handleSelectAllClasses = () => {
+    if (selectedClasses.length === classes.length) {
+      setSelectedClasses([])
+    } else {
+      setSelectedClasses(classes.map(c => c.id))
+    }
+  }
+  
+  // Handle installment preset change
+  const handleInstallmentPresetChange = (value: string) => {
+    setInstallmentPreset(value)
+    const preset = installmentPresets.find(p => p.value === value)
+    if (preset) {
+      const baseYear = 2024
+      setCustomInstallments(preset.splits.map((split, index) => ({
+        name: split.name,
+        percentage: split.percentage,
+        dueDate: new Date(baseYear, 3 + (index * Math.floor(12 / preset.splits.length)), 15).toISOString().split('T')[0],
+      })))
+    }
+  }
+  
+  // Generate fees
+  const handleGenerateFees = () => {
+    // API call would go here: feesApi.generateFees({ sessionId, classIds, installments })
+    toast.success("Fees generated successfully", {
+      description: `Generated fee records for ${selectedClasses.length} classes with ${customInstallments.length} installments.`
+    })
+    setGenerateDialogOpen(false)
+    setGenerationStep(1)
+    setSelectedClasses([])
+  }
+  
+  // Open generation dialog
+  const openGenerateDialog = () => {
+    setGenerationStep(1)
+    setSelectedClasses([])
+    handleInstallmentPresetChange("4")
+    setGenerateDialogOpen(true)
+  }
+  
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fee Structure</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage fee breakdowns for each class
-        </p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Fee Structure</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage fee components and generate student fees
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Select value={selectedSession} onValueChange={setSelectedSession}>
+            <SelectTrigger className="w-36">
+              <Calendar className="mr-2 h-4 w-4" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sessions.map((session) => (
+                <SelectItem key={session.id} value={session.id.toString()}>
+                  {session.name} {session.isActive && "(Active)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button onClick={openGenerateDialog}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Generate Fees
+          </Button>
+        </div>
       </div>
-
-      <Card className="border-border/50 shadow-sm">
+      
+      {/* Summary Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+              <Layers className="h-4 w-4" />
+              Total Classes
+            </div>
+            <p className="text-2xl font-semibold">{stats.totalClasses}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+              <IndianRupee className="h-4 w-4" />
+              Average Fee
+            </div>
+            <p className="text-2xl font-semibold">{formatCurrency(stats.avgFee)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Highest Fee</p>
+            <p className="text-2xl font-semibold">{formatCurrency(stats.maxFee)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Lowest Fee</p>
+            <p className="text-2xl font-semibold">{formatCurrency(stats.minFee)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Total Students</p>
+            <p className="text-2xl font-semibold">{stats.totalStudents}</p>
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Fee Components */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold">Fee Components</CardTitle>
+              <CardDescription>Defined fee components for the institution</CardDescription>
+            </div>
+            <Button variant="outline" size="sm">
+              <Settings2 className="mr-2 h-4 w-4" />
+              Manage Components
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {feeComponents.map((component) => (
+              <Badge key={component.id} variant="secondary" className="px-3 py-1.5">
+                {component.name}
+              </Badge>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Class-wise Fee Structure */}
+      <Card>
         <CardHeader>
           <CardTitle className="text-base font-semibold">Class-wise Fee Structure</CardTitle>
           <CardDescription>
-            Click the edit button to modify fee components for each class
+            Session: {sessions.find(s => s.id.toString() === selectedSession)?.name} | Click edit to modify fee components
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs font-medium text-muted-foreground">Class</TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Tuition Fee
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Transport Fee
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Lab Fee
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Library Fee
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Sports Fee
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Total Fee
-                  </TableHead>
+                <TableRow>
+                  <TableHead>Class</TableHead>
+                  <TableHead className="text-right">Tuition</TableHead>
+                  <TableHead className="text-right">Transport</TableHead>
+                  <TableHead className="text-right">Lab</TableHead>
+                  <TableHead className="text-right">Library</TableHead>
+                  <TableHead className="text-right">Sports</TableHead>
+                  <TableHead className="text-right">Exam</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-center">Students</TableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {structures.map((structure) => (
-                  <TableRow key={structure.id} className="hover:bg-muted/50">
-                    <TableCell className="font-medium">{structure.class}</TableCell>
-                    {editingId === structure.id ? (
+                {feeStructureData.map((structure) => (
+                  <TableRow key={structure.classId}>
+                    <TableCell className="font-medium">{structure.className}</TableCell>
+                    {editingClassId === structure.classId ? (
                       <>
                         <TableCell className="text-right">
                           <Input
                             type="number"
                             value={editValues.tuitionFee || ""}
-                            onChange={(e) => handleInputChange("tuitionFee", e.target.value)}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, tuitionFee: parseInt(e.target.value) || 0 }))}
                             className="h-8 w-24 text-right ml-auto"
                           />
                         </TableCell>
@@ -136,7 +359,7 @@ export default function FeeStructurePage() {
                           <Input
                             type="number"
                             value={editValues.transportFee || ""}
-                            onChange={(e) => handleInputChange("transportFee", e.target.value)}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, transportFee: parseInt(e.target.value) || 0 }))}
                             className="h-8 w-24 text-right ml-auto"
                           />
                         </TableCell>
@@ -144,7 +367,7 @@ export default function FeeStructurePage() {
                           <Input
                             type="number"
                             value={editValues.labFee || ""}
-                            onChange={(e) => handleInputChange("labFee", e.target.value)}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, labFee: parseInt(e.target.value) || 0 }))}
                             className="h-8 w-24 text-right ml-auto"
                           />
                         </TableCell>
@@ -152,7 +375,7 @@ export default function FeeStructurePage() {
                           <Input
                             type="number"
                             value={editValues.libraryFee || ""}
-                            onChange={(e) => handleInputChange("libraryFee", e.target.value)}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, libraryFee: parseInt(e.target.value) || 0 }))}
                             className="h-8 w-24 text-right ml-auto"
                           />
                         </TableCell>
@@ -160,20 +383,31 @@ export default function FeeStructurePage() {
                           <Input
                             type="number"
                             value={editValues.sportsFee || ""}
-                            onChange={(e) => handleInputChange("sportsFee", e.target.value)}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, sportsFee: parseInt(e.target.value) || 0 }))}
+                            className="h-8 w-24 text-right ml-auto"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            value={editValues.examFee || ""}
+                            onChange={(e) => setEditValues(prev => ({ ...prev, examFee: parseInt(e.target.value) || 0 }))}
                             className="h-8 w-24 text-right ml-auto"
                           />
                         </TableCell>
                         <TableCell className="text-right font-semibold text-primary">
-                          ₹{calculateTotal().toLocaleString("en-IN")}
+                          {formatCurrency(calculateEditTotal())}
+                        </TableCell>
+                        <TableCell className="text-center text-muted-foreground">
+                          {structure.studentCount}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="size-8" onClick={handleSave}>
-                              <Save className="size-4 text-success" />
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSave}>
+                              <Save className="h-4 w-4 text-success" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="size-8" onClick={handleCancel}>
-                              <X className="size-4 text-destructive" />
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleCancel}>
+                              <X className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
                         </TableCell>
@@ -181,31 +415,37 @@ export default function FeeStructurePage() {
                     ) : (
                       <>
                         <TableCell className="text-right text-muted-foreground">
-                          ₹{structure.tuitionFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.tuitionFee)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          ₹{structure.transportFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.transportFee)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          ₹{structure.labFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.labFee)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          ₹{structure.libraryFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.libraryFee)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          ₹{structure.sportsFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.sportsFee)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCurrency(structure.examFee)}
                         </TableCell>
                         <TableCell className="text-right font-semibold">
-                          ₹{structure.totalFee.toLocaleString("en-IN")}
+                          {formatCurrency(structure.totalFee)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="secondary">{structure.studentCount}</Badge>
                         </TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8"
-                            onClick={() => handleEdit(structure)}
+                            className="h-8 w-8"
+                            onClick={() => handleEdit(structure.classId)}
                           >
-                            <Pencil className="size-4" />
+                            <Pencil className="h-4 w-4" />
                           </Button>
                         </TableCell>
                       </>
@@ -217,40 +457,268 @@ export default function FeeStructurePage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-border/50 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Average Fee</p>
-            <p className="text-xl font-semibold">
-              ₹{Math.round(structures.reduce((a, s) => a + s.totalFee, 0) / structures.length).toLocaleString("en-IN")}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Highest Fee</p>
-            <p className="text-xl font-semibold">
-              ₹{Math.max(...structures.map((s) => s.totalFee)).toLocaleString("en-IN")}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Lowest Fee</p>
-            <p className="text-xl font-semibold">
-              ₹{Math.min(...structures.map((s) => s.totalFee)).toLocaleString("en-IN")}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Total Classes</p>
-            <p className="text-xl font-semibold">{structures.length}</p>
-          </CardContent>
-        </Card>
-      </div>
+      
+      {/* Fee Generation Dialog */}
+      <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Generate Student Fees
+            </DialogTitle>
+            <DialogDescription>
+              Generate fee records for students in selected classes
+            </DialogDescription>
+          </DialogHeader>
+          
+          {/* Step Indicator */}
+          <div className="flex items-center justify-center gap-2 py-4">
+            <div className={`flex items-center gap-2 ${generationStep >= 1 ? "text-primary" : "text-muted-foreground"}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${generationStep >= 1 ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                1
+              </div>
+              <span className="text-sm font-medium">Select Classes</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <div className={`flex items-center gap-2 ${generationStep >= 2 ? "text-primary" : "text-muted-foreground"}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${generationStep >= 2 ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                2
+              </div>
+              <span className="text-sm font-medium">Configure Installments</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <div className={`flex items-center gap-2 ${generationStep >= 3 ? "text-primary" : "text-muted-foreground"}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${generationStep >= 3 ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                3
+              </div>
+              <span className="text-sm font-medium">Review & Generate</span>
+            </div>
+          </div>
+          
+          {/* Step 1: Select Classes */}
+          {generationStep === 1 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Select Classes for Fee Generation</Label>
+                <Button variant="ghost" size="sm" onClick={handleSelectAllClasses}>
+                  {selectedClasses.length === classes.length ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-64 overflow-y-auto border rounded-lg p-3">
+                {classes.map((cls) => {
+                  const structure = feeStructureData.find(f => f.classId === cls.id)
+                  return (
+                    <div
+                      key={cls.id}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedClasses.includes(cls.id) ? "bg-primary/5 border-primary" : "hover:bg-muted/50"
+                      }`}
+                      onClick={() => handleClassToggle(cls.id)}
+                    >
+                      <Checkbox checked={selectedClasses.includes(cls.id)} />
+                      <div>
+                        <p className="font-medium text-sm">{cls.name}-{cls.section}</p>
+                        <p className="text-xs text-muted-foreground">{structure?.studentCount || 0} students</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {selectedClasses.length} class{selectedClasses.length !== 1 ? "es" : ""} selected
+              </p>
+            </div>
+          )}
+          
+          {/* Step 2: Configure Installments */}
+          {generationStep === 2 && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Installment Schedule</Label>
+                <Select value={installmentPreset} onValueChange={handleInstallmentPresetChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {installmentPresets.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Installment Details</Label>
+                <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-3">
+                  {customInstallments.map((inst, index) => (
+                    <div key={index} className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg">
+                      <div className="flex-1">
+                        <Input
+                          value={inst.name}
+                          onChange={(e) => {
+                            const updated = [...customInstallments]
+                            updated[index].name = e.target.value
+                            setCustomInstallments(updated)
+                          }}
+                          placeholder="Installment name"
+                          className="h-8"
+                        />
+                      </div>
+                      <div className="w-20">
+                        <Input
+                          type="number"
+                          value={inst.percentage}
+                          onChange={(e) => {
+                            const updated = [...customInstallments]
+                            updated[index].percentage = parseFloat(e.target.value) || 0
+                            setCustomInstallments(updated)
+                          }}
+                          className="h-8 text-right"
+                        />
+                      </div>
+                      <span className="text-sm text-muted-foreground">%</span>
+                      <div className="w-36">
+                        <Input
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(e) => {
+                            const updated = [...customInstallments]
+                            updated[index].dueDate = e.target.value
+                            setCustomInstallments(updated)
+                          }}
+                          className="h-8"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== index))}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCustomInstallments(prev => [...prev, { name: "", percentage: 0, dueDate: "" }])}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Installment
+                </Button>
+              </div>
+              
+              {Math.abs(customInstallments.reduce((sum, i) => sum + i.percentage, 0) - 100) > 0.1 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Invalid percentages</AlertTitle>
+                  <AlertDescription>
+                    Installment percentages must add up to 100%. Current total: {customInstallments.reduce((sum, i) => sum + i.percentage, 0).toFixed(1)}%
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+          
+          {/* Step 3: Review & Generate */}
+          {generationStep === 3 && (
+            <div className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertTitle>Review Fee Generation</AlertTitle>
+                <AlertDescription>
+                  You are about to generate fees for the following configuration:
+                </AlertDescription>
+              </Alert>
+              
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Selected Classes</CardDescription>
+                    <CardTitle className="text-lg">{selectedClasses.length} Classes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedClasses.slice(0, 5).map((classId) => {
+                        const cls = classes.find(c => c.id === classId)
+                        return (
+                          <Badge key={classId} variant="secondary">
+                            {cls?.name}-{cls?.section}
+                          </Badge>
+                        )
+                      })}
+                      {selectedClasses.length > 5 && (
+                        <Badge variant="outline">+{selectedClasses.length - 5} more</Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Total Students Affected</CardDescription>
+                    <CardTitle className="text-lg">
+                      {feeStructureData
+                        .filter(f => selectedClasses.includes(f.classId))
+                        .reduce((sum, f) => sum + f.studentCount, 0)} Students
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+              </div>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Installment Schedule ({customInstallments.length} installments)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Installment</TableHead>
+                        <TableHead className="text-right">Percentage</TableHead>
+                        <TableHead>Due Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {customInstallments.map((inst, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{inst.name}</TableCell>
+                          <TableCell className="text-right">{inst.percentage.toFixed(1)}%</TableCell>
+                          <TableCell>{new Date(inst.dueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          
+          <DialogFooter>
+            {generationStep > 1 && (
+              <Button variant="outline" onClick={() => setGenerationStep(prev => prev - 1)}>
+                Back
+              </Button>
+            )}
+            {generationStep < 3 ? (
+              <Button 
+                onClick={() => setGenerationStep(prev => prev + 1)}
+                disabled={generationStep === 1 && selectedClasses.length === 0}
+              >
+                Continue
+              </Button>
+            ) : (
+              <Button onClick={handleGenerateFees}>
+                Generate Fees
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

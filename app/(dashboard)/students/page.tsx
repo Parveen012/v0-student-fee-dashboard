@@ -1,10 +1,13 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Plus, Search, Filter, MoreHorizontal, Mail, Phone } from "lucide-react"
+import Link from "next/link"
+import { Plus, Search, Filter, MoreHorizontal, Mail, Phone, Eye, Edit, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -38,9 +41,34 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { StatusBadge } from "@/components/status-badge"
-import { students, classes, type FeeStatus } from "@/lib/data"
 import { toast } from "sonner"
+import { students, studentFees, classes } from "@/lib/mock-data"
+
+// Status badge component
+function StatusBadge({ status }: { status: string }) {
+  const variants: Record<string, string> = {
+    paid: "bg-success/10 text-success border-success/20",
+    partial: "bg-warning/10 text-warning-foreground border-warning/20",
+    unpaid: "bg-muted text-muted-foreground border-muted",
+    overdue: "bg-destructive/10 text-destructive border-destructive/20",
+    overpaid: "bg-primary/10 text-primary border-primary/20",
+  }
+  
+  return (
+    <Badge variant="outline" className={variants[status] || variants.unpaid}>
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </Badge>
+  )
+}
+
+// Format currency
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
 
 export default function StudentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -48,19 +76,38 @@ export default function StudentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
 
-  const filteredStudents = useMemo(() => {
-    return students.filter((student) => {
-      const matchesSearch =
-        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.rollNo.includes(searchQuery) ||
-        student.id.toLowerCase().includes(searchQuery.toLowerCase())
+  // Combine student data with fees
+  const studentsWithFees = useMemo(() => {
+    return students.map(student => {
+      const fee = studentFees.find(sf => sf.studentId === student.id)
+      return {
+        ...student,
+        fee,
+        className: student.class ? `${student.class.name}-${student.class.section}` : "N/A",
+      }
+    })
+  }, [])
 
-      const matchesClass = classFilter === "all" || student.class === classFilter
-      const matchesStatus = statusFilter === "all" || student.feeStatus === statusFilter
+  // Get unique class names for filter
+  const classNames = useMemo(() => {
+    const names = new Set(classes.map(c => `${c.name}-${c.section}`))
+    return Array.from(names).sort()
+  }, [])
+
+  const filteredStudents = useMemo(() => {
+    return studentsWithFees.filter((student) => {
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase()
+      const matchesSearch =
+        fullName.includes(searchQuery.toLowerCase()) ||
+        student.id.toString().includes(searchQuery) ||
+        `STU${String(student.id).padStart(3, "0")}`.toLowerCase().includes(searchQuery.toLowerCase())
+
+      const matchesClass = classFilter === "all" || student.className === classFilter
+      const matchesStatus = statusFilter === "all" || student.fee?.status === statusFilter
 
       return matchesSearch && matchesClass && matchesStatus
     })
-  }, [searchQuery, classFilter, statusFilter])
+  }, [studentsWithFees, searchQuery, classFilter, statusFilter])
 
   const handleAddStudent = (e: React.FormEvent) => {
     e.preventDefault()
@@ -69,6 +116,17 @@ export default function StudentsPage() {
       description: "The new student has been added to the system.",
     })
   }
+
+  // Summary stats
+  const stats = useMemo(() => {
+    const total = studentsWithFees.length
+    const paid = studentsWithFees.filter(s => s.fee?.status === "paid" || s.fee?.status === "overpaid").length
+    const partial = studentsWithFees.filter(s => s.fee?.status === "partial").length
+    const overdue = studentsWithFees.filter(s => 
+      s.fee?.installments?.some(i => i.status === "overdue")
+    ).length
+    return { total, paid, partial, overdue }
+  }, [studentsWithFees])
 
   return (
     <div className="flex flex-col gap-6">
@@ -95,9 +153,15 @@ export default function StudentsPage() {
             </DialogHeader>
             <form onSubmit={handleAddStudent}>
               <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" placeholder="Enter student name" required />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input id="firstName" placeholder="First name" required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input id="lastName" placeholder="Last name" required />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -107,7 +171,7 @@ export default function StudentsPage() {
                         <SelectValue placeholder="Select class" />
                       </SelectTrigger>
                       <SelectContent>
-                        {classes.map((cls) => (
+                        {classNames.map((cls) => (
                           <SelectItem key={cls} value={cls}>
                             {cls}
                           </SelectItem>
@@ -116,17 +180,26 @@ export default function StudentsPage() {
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="rollNo">Roll No</Label>
-                    <Input id="rollNo" placeholder="Enter roll no" required />
+                    <Label htmlFor="gender">Gender</Label>
+                    <Select required>
+                      <SelectTrigger id="gender">
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Male">Male</SelectItem>
+                        <SelectItem value="Female">Female</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" placeholder="student@school.edu" required />
+                  <Label htmlFor="dob">Date of Birth</Label>
+                  <Input id="dob" type="date" required />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" placeholder="+91 98765 43210" required />
+                  <Label htmlFor="admissionDate">Admission Date</Label>
+                  <Input id="admissionDate" type="date" required />
                 </div>
               </div>
               <DialogFooter>
@@ -140,6 +213,34 @@ export default function StudentsPage() {
         </Dialog>
       </div>
 
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Total Students</CardDescription>
+            <CardTitle className="text-3xl">{stats.total}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Fully Paid</CardDescription>
+            <CardTitle className="text-3xl text-success">{stats.paid}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Partial Payment</CardDescription>
+            <CardTitle className="text-3xl text-warning-foreground">{stats.partial}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Overdue</CardDescription>
+            <CardTitle className="text-3xl text-destructive">{stats.overdue}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
       {/* Filters */}
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="pb-4">
@@ -150,20 +251,20 @@ export default function StudentsPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name, roll no, or ID..."
+                placeholder="Search by name or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
             <Select value={classFilter} onValueChange={setClassFilter}>
-              <SelectTrigger className="w-full sm:w-40">
+              <SelectTrigger className="w-full sm:w-44">
                 <Filter className="mr-2 size-4" />
                 <SelectValue placeholder="Class" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                {classes.map((cls) => (
+                {classNames.map((cls) => (
                   <SelectItem key={cls} value={cls}>
                     {cls}
                   </SelectItem>
@@ -177,8 +278,9 @@ export default function StudentsPage() {
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
+                <SelectItem value="partial">Partial</SelectItem>
+                <SelectItem value="unpaid">Unpaid</SelectItem>
+                <SelectItem value="overpaid">Overpaid</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -200,7 +302,6 @@ export default function StudentsPage() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="text-xs font-medium text-muted-foreground">Student</TableHead>
                   <TableHead className="text-xs font-medium text-muted-foreground">Class</TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground">Roll No</TableHead>
                   <TableHead className="text-xs font-medium text-muted-foreground">Status</TableHead>
                   <TableHead className="text-right text-xs font-medium text-muted-foreground">
                     Total Fee
@@ -209,8 +310,9 @@ export default function StudentsPage() {
                     Paid
                   </TableHead>
                   <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Due
+                    Balance
                   </TableHead>
+                  <TableHead className="text-xs font-medium text-muted-foreground">Progress</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -222,58 +324,87 @@ export default function StudentsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredStudents.map((student) => (
-                    <TableRow key={student.id} className="hover:bg-muted/50">
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{student.name}</span>
-                          <span className="text-xs text-muted-foreground">{student.id}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{student.class}</TableCell>
-                      <TableCell className="text-muted-foreground">{student.rollNo}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={student.feeStatus} />
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        ₹{student.totalFee.toLocaleString("en-IN")}
-                      </TableCell>
-                      <TableCell className="text-right text-success">
-                        ₹{student.paidAmount.toLocaleString("en-IN")}
-                      </TableCell>
-                      <TableCell className="text-right text-destructive">
-                        ₹{student.dueAmount.toLocaleString("en-IN")}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreHorizontal className="size-4" />
-                              <span className="sr-only">Actions</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem>View Details</DropdownMenuItem>
-                            <DropdownMenuItem>Edit Student</DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Mail className="mr-2 size-4" />
-                              Send Reminder
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Phone className="mr-2 size-4" />
-                              Call Parent
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive">
-                              Delete Student
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  filteredStudents.map((student) => {
+                    const progress = student.fee ? (student.fee.paidAmount / student.fee.netAmount) * 100 : 0
+                    return (
+                      <TableRow key={student.id} className="hover:bg-muted/50">
+                        <TableCell>
+                          <Link href={`/students/${student.id}`} className="block hover:underline">
+                            <div className="flex flex-col">
+                              <span className="font-medium">{student.firstName} {student.lastName}</span>
+                              <span className="text-xs text-muted-foreground">
+                                STU{String(student.id).padStart(3, "0")}
+                              </span>
+                            </div>
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{student.className}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={student.fee?.status || "unpaid"} />
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(student.fee?.netAmount || 0)}
+                        </TableCell>
+                        <TableCell className="text-right text-success">
+                          {formatCurrency(student.fee?.paidAmount || 0)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(student.fee?.balance || 0) > 0 ? (
+                            <span className="text-destructive">
+                              {formatCurrency(student.fee?.balance || 0)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress value={progress} className="h-2 w-20" />
+                            <span className="text-xs text-muted-foreground w-10">
+                              {progress.toFixed(0)}%
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-8">
+                                <MoreHorizontal className="size-4" />
+                                <span className="sr-only">Actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem asChild>
+                                <Link href={`/students/${student.id}`}>
+                                  <Eye className="mr-2 size-4" />
+                                  View Details
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Edit className="mr-2 size-4" />
+                                Edit Student
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Mail className="mr-2 size-4" />
+                                Send Reminder
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Phone className="mr-2 size-4" />
+                                Call Parent
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive">
+                                <Trash2 className="mr-2 size-4" />
+                                Delete Student
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
