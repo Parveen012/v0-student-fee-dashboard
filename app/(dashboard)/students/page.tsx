@@ -1,13 +1,16 @@
 "use client"
 
+<<<<<<< HEAD
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Plus, Search, Filter, MoreHorizontal, Mail, Phone, Eye, Edit, Trash2 } from "lucide-react"
+=======
+import { useState, useMemo } from "react"
+import { Plus, Search, Filter, MoreHorizontal, Mail, Phone } from "lucide-react"
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -41,6 +44,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+<<<<<<< HEAD
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { classesApi, studentsApi } from "@/lib/api"
@@ -71,6 +75,11 @@ function formatCurrency(amount: number) {
     maximumFractionDigits: 0,
   }).format(amount)
 }
+=======
+import { StatusBadge } from "@/components/status-badge"
+import { students, classes, type FeeStatus } from "@/lib/data"
+import { toast } from "sonner"
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
 
 export default function StudentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -119,6 +128,7 @@ export default function StudentsPage() {
     return students[0]?.tenantId ?? 1
   }, [students])
 
+<<<<<<< HEAD
   // Combine student data with fees
   const studentsWithFees = useMemo(() => {
     const classMap = new Map(classes.map((cls) => [cls.id, cls]))
@@ -139,20 +149,21 @@ export default function StudentsPage() {
     return Array.from(names).sort()
   }, [classes])
 
+=======
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
   const filteredStudents = useMemo(() => {
-    return studentsWithFees.filter((student) => {
-      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase()
+    return students.filter((student) => {
       const matchesSearch =
-        fullName.includes(searchQuery.toLowerCase()) ||
-        student.id.toString().includes(searchQuery) ||
-        `STU${String(student.id).padStart(3, "0")}`.toLowerCase().includes(searchQuery.toLowerCase())
+        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.rollNo.includes(searchQuery) ||
+        student.id.toLowerCase().includes(searchQuery.toLowerCase())
 
-      const matchesClass = classFilter === "all" || student.className === classFilter
-      const matchesStatus = statusFilter === "all" || student.fee?.status === statusFilter
+      const matchesClass = classFilter === "all" || student.class === classFilter
+      const matchesStatus = statusFilter === "all" || student.feeStatus === statusFilter
 
       return matchesSearch && matchesClass && matchesStatus
     })
-  }, [studentsWithFees, searchQuery, classFilter, statusFilter])
+  }, [searchQuery, classFilter, statusFilter])
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -195,17 +206,6 @@ export default function StudentsPage() {
     }
   }
 
-  // Summary stats
-  const stats = useMemo(() => {
-    const total = studentsWithFees.length
-    const paid = studentsWithFees.filter(s => s.fee?.status === "paid" || s.fee?.status === "overpaid").length
-    const partial = studentsWithFees.filter(s => s.fee?.status === "partial").length
-    const overdue = studentsWithFees.filter(s => 
-      s.fee?.installments?.some(i => i.status === "overdue")
-    ).length
-    return { total, paid, partial, overdue }
-  }, [studentsWithFees])
-
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -231,6 +231,7 @@ export default function StudentsPage() {
             </DialogHeader>
             <form onSubmit={handleAddStudent}>
               <div className="grid gap-4 py-4">
+<<<<<<< HEAD
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="firstName">First Name</Label>
@@ -256,6 +257,11 @@ export default function StudentsPage() {
                       }
                     />
                   </div>
+=======
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input id="name" placeholder="Enter student name" required />
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -272,14 +278,20 @@ export default function StudentsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {classes.map((cls) => (
+<<<<<<< HEAD
                           <SelectItem key={cls.id} value={cls.id.toString()}>
                             {cls.name}-{cls.section}
+=======
+                          <SelectItem key={cls} value={cls}>
+                            {cls}
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
+<<<<<<< HEAD
                     <Label htmlFor="gender">Gender</Label>
                     <Select
                       required
@@ -320,6 +332,19 @@ export default function StudentsPage() {
                       setNewStudent((prev) => ({ ...prev, admissionDate: e.target.value }))
                     }
                   />
+=======
+                    <Label htmlFor="rollNo">Roll No</Label>
+                    <Input id="rollNo" placeholder="Enter roll no" required />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" placeholder="student@school.edu" required />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input id="phone" placeholder="+91 98765 43210" required />
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
                 </div>
               </div>
               <DialogFooter>
@@ -333,6 +358,7 @@ export default function StudentsPage() {
         </Dialog>
       </div>
 
+<<<<<<< HEAD
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Student data unavailable</AlertTitle>
@@ -371,6 +397,8 @@ export default function StudentsPage() {
         </Card>
       </div>
 
+=======
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
       {/* Filters */}
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="pb-4">
@@ -381,20 +409,20 @@ export default function StudentsPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name or ID..."
+                placeholder="Search by name, roll no, or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
             <Select value={classFilter} onValueChange={setClassFilter}>
-              <SelectTrigger className="w-full sm:w-44">
+              <SelectTrigger className="w-full sm:w-40">
                 <Filter className="mr-2 size-4" />
                 <SelectValue placeholder="Class" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                {classNames.map((cls) => (
+                {classes.map((cls) => (
                   <SelectItem key={cls} value={cls}>
                     {cls}
                   </SelectItem>
@@ -408,9 +436,8 @@ export default function StudentsPage() {
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="partial">Partial</SelectItem>
-                <SelectItem value="unpaid">Unpaid</SelectItem>
-                <SelectItem value="overpaid">Overpaid</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -432,6 +459,7 @@ export default function StudentsPage() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="text-xs font-medium text-muted-foreground">Student</TableHead>
                   <TableHead className="text-xs font-medium text-muted-foreground">Class</TableHead>
+                  <TableHead className="text-xs font-medium text-muted-foreground">Roll No</TableHead>
                   <TableHead className="text-xs font-medium text-muted-foreground">Status</TableHead>
                   <TableHead className="text-right text-xs font-medium text-muted-foreground">
                     Total Fee
@@ -440,9 +468,8 @@ export default function StudentsPage() {
                     Paid
                   </TableHead>
                   <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                    Balance
+                    Due
                   </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground">Progress</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -454,6 +481,7 @@ export default function StudentsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
+<<<<<<< HEAD
                   filteredStudents.map((student) => {
                     const progress =
                       student.fee && student.fee.netAmount > 0
@@ -538,6 +566,60 @@ export default function StudentsPage() {
                       </TableRow>
                     )
                   })
+=======
+                  filteredStudents.map((student) => (
+                    <TableRow key={student.id} className="hover:bg-muted/50">
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{student.name}</span>
+                          <span className="text-xs text-muted-foreground">{student.id}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{student.class}</TableCell>
+                      <TableCell className="text-muted-foreground">{student.rollNo}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={student.feeStatus} />
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        ₹{student.totalFee.toLocaleString("en-IN")}
+                      </TableCell>
+                      <TableCell className="text-right text-success">
+                        ₹{student.paidAmount.toLocaleString("en-IN")}
+                      </TableCell>
+                      <TableCell className="text-right text-destructive">
+                        ₹{student.dueAmount.toLocaleString("en-IN")}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-8">
+                              <MoreHorizontal className="size-4" />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem>View Details</DropdownMenuItem>
+                            <DropdownMenuItem>Edit Student</DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Mail className="mr-2 size-4" />
+                              Send Reminder
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Phone className="mr-2 size-4" />
+                              Call Parent
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive">
+                              Delete Student
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+>>>>>>> 747b1495436d4f81a92794c03cd1b2285918ac8f
                 )}
               </TableBody>
             </Table>
