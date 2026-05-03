@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { 
   CalendarDays, 
   GraduationCap, 
@@ -42,7 +42,8 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { sessions, classes, feeComponents, students } from "@/lib/mock-data"
+import { classesApi, feeComponentsApi, sessionsApi, studentsApi } from "@/lib/api"
+import type { Class, FeeComponent, Session, Student } from "@/lib/types"
 
 // Step indicator component
 function StepIndicator({ currentStep, steps }: { currentStep: number; steps: string[] }) {
@@ -109,6 +110,12 @@ export default function FeeGenerationPage() {
   const [selectedSession, setSelectedSession] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
   const [componentAmounts, setComponentAmounts] = useState<Record<number, ComponentAmount[]>>({})
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [installments, setInstallments] = useState<Installment[]>([
     { id: 1, name: "Q1 (Apr-Jun)", dueDate: "2024-04-15", percentage: 25 },
     { id: 2, name: "Q2 (Jul-Sep)", dueDate: "2024-07-15", percentage: 25 },
@@ -120,6 +127,35 @@ export default function FeeGenerationPage() {
   
   // Get active session
   const activeSession = sessions.find(s => s.id.toString() === selectedSession)
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [sessionsData, classesData, feeComponentsData, studentsData] = await Promise.all([
+        sessionsApi.getAll(),
+        classesApi.getAll(),
+        feeComponentsApi.getAll(),
+        studentsApi.getAll(),
+      ])
+      setSessions(sessionsData)
+      setClasses(classesData)
+      setFeeComponents(feeComponentsData)
+      setStudents(studentsData)
+      if (!selectedSession) {
+        const active = sessionsData.find((session) => session.isActive) || sessionsData[0]
+        if (active) setSelectedSession(active.id.toString())
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load fee generation data.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [selectedSession])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
   
   // Calculate totals
   const classTotals = useMemo(() => {
@@ -224,6 +260,16 @@ export default function FeeGenerationPage() {
           Create and apply fee structures to students for the academic session
         </p>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Fee generation data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading fee generation data...</div>
+      )}
       
       <StepIndicator currentStep={currentStep} steps={steps} />
       

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Download, FileSpreadsheet, Filter, TrendingUp, TrendingDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,22 +30,73 @@ import {
   LineChart,
   Line,
 } from "recharts"
-import { students, payments, monthlyCollections, classes, feeStructures } from "@/lib/data"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { classesApi, paymentsApi, studentsApi } from "@/lib/api"
+import type { Class, MonthlyCollection, Payment, Student, StudentFee } from "@/lib/types"
 import { toast } from "sonner"
 
 export default function ReportsPage() {
   const [classFilter, setClassFilter] = useState<string>("all")
   const [dateRange, setDateRange] = useState<string>("year")
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [studentsData, paymentsData, classesData] = await Promise.all([
+        studentsApi.getAll(),
+        paymentsApi.getAll(),
+        classesApi.getAll(),
+      ])
+      setStudents(studentsData)
+      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+      setPayments(paymentsData)
+      setClasses(classesData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load reports.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const filteredStudents = useMemo(() => {
     if (classFilter === "all") return students
-    return students.filter((s) => s.class === classFilter)
-  }, [classFilter])
+    const classMap = new Map(classes.map((cls) => [cls.id, cls]))
+    return students.filter((s) => {
+      const classInfo = s.class || (s.classId ? classMap.get(s.classId) : undefined)
+      const className = classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A"
+      return className === classFilter
+    })
+  }, [classFilter, classes, students])
 
   const reportStats = useMemo(() => {
-    const totalCollected = filteredStudents.reduce((a, s) => a + s.paidAmount, 0)
-    const totalPending = filteredStudents.reduce((a, s) => a + s.dueAmount, 0)
-    const totalFees = filteredStudents.reduce((a, s) => a + s.totalFee, 0)
+    const feeRecords = studentFees.filter((fee) =>
+      filteredStudents.some((student) => student.id === fee.studentId)
+    )
+    const totalCollected =
+      feeRecords.length > 0
+        ? feeRecords.reduce((sum, fee) => sum + fee.paidAmount, 0)
+        : payments
+            .filter((payment) => payment.status === "completed")
+            .reduce((sum, payment) => sum + payment.amountPaid, 0)
+    const totalPending =
+      feeRecords.length > 0
+        ? feeRecords.reduce((sum, fee) => sum + fee.balance, 0)
+        : payments
+            .filter((payment) => payment.status === "pending")
+            .reduce((sum, payment) => sum + payment.amountPaid, 0)
+    const totalFees =
+      feeRecords.length > 0 ? feeRecords.reduce((sum, fee) => sum + fee.totalAmount, 0) : 0
     const collectionRate = totalFees > 0 ? (totalCollected / totalFees) * 100 : 0
 
     return {
@@ -54,25 +105,59 @@ export default function ReportsPage() {
       totalFees,
       collectionRate,
       studentCount: filteredStudents.length,
-      paidCount: filteredStudents.filter((s) => s.feeStatus === "paid").length,
-      pendingCount: filteredStudents.filter((s) => s.feeStatus === "pending").length,
-      overdueCount: filteredStudents.filter((s) => s.feeStatus === "overdue").length,
+      paidCount: feeRecords.filter((f) => f.status === "paid" || f.status === "overpaid").length,
+      pendingCount: feeRecords.filter((f) => f.status === "partial").length,
+      overdueCount: feeRecords.filter((f) => f.installments?.some((i) => i.status === "overdue")).length,
     }
-  }, [filteredStudents])
+  }, [filteredStudents, payments, studentFees])
 
   const classwiseData = useMemo(() => {
-    return feeStructures.map((fs) => {
-      const classStudents = students.filter((s) => s.class.startsWith(fs.class.replace(" Grade", "")))
-      const collected = classStudents.reduce((a, s) => a + s.paidAmount, 0)
-      const pending = classStudents.reduce((a, s) => a + s.dueAmount, 0)
+    return classes.map((cls) => {
+      const classStudents = students.filter((student) => student.classId === cls.id)
+      const classFees = studentFees.filter((fee) =>
+        classStudents.some((student) => student.id === fee.studentId)
+      )
+      const collected = classFees.reduce((sum, fee) => sum + fee.paidAmount, 0)
+      const pending = classFees.reduce((sum, fee) => sum + fee.balance, 0)
       return {
-        class: fs.class,
+        class: `${cls.name}-${cls.section}`,
         collected,
         pending,
         total: collected + pending,
       }
     })
-  }, [])
+  }, [classes, studentFees, students])
+
+  const monthlyCollections = useMemo<MonthlyCollection[]>(() => {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    const monthMap = new Map<string, { year: number; month: number; collected: number; pending: number }>()
+
+    payments.forEach((payment) => {
+      const date = new Date(payment.paymentDate)
+      if (Number.isNaN(date.getTime())) return
+      const key = `${date.getFullYear()}-${date.getMonth()}`
+      const existing = monthMap.get(key) || {
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        collected: 0,
+        pending: 0,
+      }
+      if (payment.status === "pending") {
+        existing.pending += payment.amountPaid
+      } else {
+        existing.collected += payment.amountPaid
+      }
+      monthMap.set(key, existing)
+    })
+
+    return Array.from(monthMap.values())
+      .sort((a, b) => (a.year === b.year ? a.month - b.month : a.year - b.year))
+      .map((item) => ({
+        month: monthNames[item.month],
+        collected: item.collected,
+        pending: item.pending,
+      }))
+  }, [payments])
 
   const handleExport = () => {
     toast.success("Report exported", {
@@ -95,6 +180,16 @@ export default function ReportsPage() {
         </Button>
       </div>
 
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Report data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading reports...</div>
+      )}
+
       {/* Filters */}
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="pb-4">
@@ -109,11 +204,14 @@ export default function ReportsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                {classes.map((cls) => (
-                  <SelectItem key={cls} value={cls}>
-                    {cls}
-                  </SelectItem>
-                ))}
+                {classes.map((cls) => {
+                  const className = `${cls.name}-${cls.section}`
+                  return (
+                    <SelectItem key={cls.id} value={className}>
+                      {className}
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
             <Select value={dateRange} onValueChange={setDateRange}>
@@ -310,19 +408,28 @@ export default function ReportsPage() {
               </TableHeader>
               <TableBody>
                 {filteredStudents.map((student) => {
-                  const collectionPercent = (student.paidAmount / student.totalFee) * 100
+                  const fee = studentFees.find((sf) => sf.studentId === student.id)
+                  const totalFee = fee?.totalAmount || 0
+                  const collected = fee?.paidAmount || 0
+                  const pending = fee?.balance || 0
+                  const collectionPercent = totalFee > 0 ? (collected / totalFee) * 100 : 0
+                  const classInfo =
+                    student.class || (student.classId ? classes.find((cls) => cls.id === student.classId) : undefined)
+                  const className = classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A"
                   return (
                     <TableRow key={student.id} className="hover:bg-muted/50">
-                      <TableCell className="font-medium">{student.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{student.class}</TableCell>
+                      <TableCell className="font-medium">
+                        {student.firstName} {student.lastName}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{className}</TableCell>
                       <TableCell className="text-right">
-                        ₹{student.totalFee.toLocaleString("en-IN")}
+                        ₹{totalFee.toLocaleString("en-IN")}
                       </TableCell>
                       <TableCell className="text-right text-success">
-                        ₹{student.paidAmount.toLocaleString("en-IN")}
+                        ₹{collected.toLocaleString("en-IN")}
                       </TableCell>
                       <TableCell className="text-right text-destructive">
-                        ₹{student.dueAmount.toLocaleString("en-IN")}
+                        ₹{pending.toLocaleString("en-IN")}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {collectionPercent.toFixed(0)}%

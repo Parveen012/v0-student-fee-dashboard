@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState, useMemo } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { 
   ArrowLeft, 
@@ -61,16 +61,26 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
-import { 
-  students, 
-  studentFees, 
-  payments, 
-  studentDiscounts, 
-  studentFines,
-  discounts,
-  fines,
-  getStudentFeeBreakdown,
-} from "@/lib/mock-data"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  discountsApi,
+  feeComponentsApi,
+  finesApi,
+  paymentsApi,
+  studentDiscountsApi,
+  studentFinesApi,
+  studentsApi,
+} from "@/lib/api"
+import type {
+  Discount,
+  FeeComponent,
+  Fine,
+  Payment,
+  Student,
+  StudentDiscount,
+  StudentFee,
+  StudentFine,
+} from "@/lib/types"
 
 // Status badge component
 function StatusBadge({ status }: { status: string }) {
@@ -133,11 +143,23 @@ function formatDate(date: string) {
 export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const studentId = parseInt(id)
+
+  const [student, setStudent] = useState<Student | null>(null)
+  const [studentFee, setStudentFee] = useState<StudentFee | null>(null)
+  const [studentPayments, setStudentPayments] = useState<Payment[]>([])
+  const [studentDiscountsList, setStudentDiscountsList] = useState<StudentDiscount[]>([])
+  const [studentFinesList, setStudentFinesList] = useState<StudentFine[]>([])
+  const [discounts, setDiscounts] = useState<Discount[]>([])
+  const [fines, setFines] = useState<Fine[]>([])
+  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [discountDialogOpen, setDiscountDialogOpen] = useState(false)
   const [fineDialogOpen, setFineDialogOpen] = useState(false)
   const [selectedInstallment, setSelectedInstallment] = useState<number | null>(null)
+  const [selectedFineInstallmentId, setSelectedFineInstallmentId] = useState<number | null>(null)
   
   // Payment form state
   const [paymentAmount, setPaymentAmount] = useState("")
@@ -151,15 +173,101 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   // Fine form state
   const [selectedFineId, setSelectedFineId] = useState("")
   
-  // Get student data
-  const student = useMemo(() => students.find(s => s.id === studentId), [studentId])
-  const studentFee = useMemo(() => studentFees.find(sf => sf.studentId === studentId), [studentId])
-  const studentPayments = useMemo(() => payments.filter(p => p.studentId === studentId), [studentId])
-  const studentDiscountsList = useMemo(() => studentDiscounts.filter(sd => sd.studentId === studentId), [studentId])
-  const studentFinesList = useMemo(() => studentFines.filter(sf => sf.studentId === studentId), [studentId])
-  const feeBreakdown = useMemo(() => getStudentFeeBreakdown(studentId), [studentId])
+  const loadStudentData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [
+        studentData,
+        paymentsData,
+        discountsData,
+        finesData,
+        studentDiscountsData,
+        studentFinesData,
+        feeComponentsData,
+      ] = await Promise.all([
+        studentsApi.getById(studentId),
+        paymentsApi.getAll(),
+        discountsApi.getAll(),
+        finesApi.getAll(),
+        studentDiscountsApi.getAll(),
+        studentFinesApi.getAll(),
+        feeComponentsApi.getAll(),
+      ])
+
+      const discountMap = new Map(discountsData.map((discount) => [discount.id, discount]))
+      const fineMap = new Map(finesData.map((fine) => [fine.id, fine]))
+
+      setStudent(studentData)
+      setStudentFee(studentData.studentFees?.[0] || null)
+      setStudentPayments(paymentsData.filter((payment) => payment.studentId === studentId))
+      setStudentDiscountsList(
+        studentDiscountsData
+          .filter((sd) => sd.studentId === studentId)
+          .map((sd) => ({
+            ...sd,
+            discount: sd.discount || discountMap.get(sd.discountId),
+          }))
+      )
+      setStudentFinesList(
+        studentFinesData
+          .filter((sf) => sf.studentId === studentId)
+          .map((sf) => ({
+            ...sf,
+            fine: sf.fine || fineMap.get(sf.fineId),
+          }))
+      )
+      setDiscounts(discountsData)
+      setFines(finesData)
+      setFeeComponents(feeComponentsData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load student details.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [studentId])
+
+  useEffect(() => {
+    loadStudentData()
+  }, [loadStudentData])
+
+  const feeBreakdown = useMemo(() => {
+    if (!studentFee) return null
+    const componentMap = new Map(feeComponents.map((component) => [component.id, component]))
+    const structureComponents = studentFee.feeStructure?.feeStructureComponents || []
+    const breakdown = structureComponents.map((component) => ({
+      component:
+        component.feeComponent?.name ||
+        componentMap.get(component.feeComponentId)?.name ||
+        "Fee Component",
+      amount: component.amount,
+    }))
+
+    return {
+      breakdown,
+      totalFee: studentFee.totalAmount,
+      discountAmount: studentFee.discountAmount,
+      fineAmount: studentFee.fineAmount,
+      netAmount: studentFee.netAmount,
+      paidAmount: studentFee.paidAmount,
+      balance: studentFee.balance,
+    }
+  }, [feeComponents, studentFee])
   
-  if (!student || !studentFee) {
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">Loading student details...</div>
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Student data unavailable</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (!student) {
     return (
       <div className="flex flex-col items-center justify-center h-96">
         <h2 className="text-xl font-semibold">Student not found</h2>
@@ -172,50 +280,90 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       </div>
     )
   }
-  
-  const collectionProgress = (studentFee.paidAmount / studentFee.netAmount) * 100
+
+  const collectionProgress =
+    studentFee && studentFee.netAmount > 0 ? (studentFee.paidAmount / studentFee.netAmount) * 100 : 0
   
   // Handle payment submission
-  const handlePaymentSubmit = () => {
+  const handlePaymentSubmit = async () => {
     const amount = parseFloat(paymentAmount)
     if (isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount")
       return
     }
-    
-    // API call would go here: paymentsApi.create({...})
-    toast.success(`Payment of ${formatCurrency(amount)} recorded successfully`)
-    setPaymentDialogOpen(false)
-    setPaymentAmount("")
-    setTransactionId("")
-    setSelectedInstallment(null)
+
+    if (!studentFee) {
+      toast.error("Fee data is not available for this student.")
+      return
+    }
+
+    try {
+      await paymentsApi.create({
+        studentFeeId: studentFee.id,
+        installmentId: selectedInstallment,
+        amountPaid: amount,
+        paymentDate: new Date().toISOString(),
+        mode: paymentMode,
+        transactionId: transactionId || null,
+        studentId: student.id,
+        tenantId: student.tenantId,
+      })
+      toast.success(`Payment of ${formatCurrency(amount)} recorded successfully`)
+      setPaymentDialogOpen(false)
+      setPaymentAmount("")
+      setTransactionId("")
+      setSelectedInstallment(null)
+      await loadStudentData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment.")
+    }
   }
   
   // Handle discount application
-  const handleDiscountSubmit = () => {
+  const handleDiscountSubmit = async () => {
     if (!selectedDiscountId) {
       toast.error("Please select a discount type")
       return
     }
-    
-    // API call would go here: studentDiscountsApi.create({...})
-    toast.success("Discount applied successfully")
-    setDiscountDialogOpen(false)
-    setSelectedDiscountId("")
-    setDiscountReason("")
+
+    try {
+      await studentDiscountsApi.create({
+        studentId: student.id,
+        discountId: Number(selectedDiscountId),
+        reason: discountReason,
+      })
+      toast.success("Discount applied successfully")
+      setDiscountDialogOpen(false)
+      setSelectedDiscountId("")
+      setDiscountReason("")
+      await loadStudentData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to apply discount.")
+    }
   }
   
   // Handle fine application
-  const handleFineSubmit = () => {
+  const handleFineSubmit = async () => {
     if (!selectedFineId) {
       toast.error("Please select a fine type")
       return
     }
-    
-    // API call would go here: studentFinesApi.create({...})
-    toast.success("Fine applied successfully")
-    setFineDialogOpen(false)
-    setSelectedFineId("")
+
+    try {
+      await studentFinesApi.create({
+        studentId: student.id,
+        fineId: Number(selectedFineId),
+        installmentId: selectedFineInstallmentId,
+        isPaid: false,
+      })
+      toast.success("Fine applied successfully")
+      setFineDialogOpen(false)
+      setSelectedFineId("")
+      setSelectedFineInstallmentId(null)
+      await loadStudentData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to apply fine.")
+    }
   }
   
   return (
@@ -263,7 +411,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     <GraduationCap className="h-3 w-3 mr-1" />
                     {student.class?.name} - {student.class?.section}
                   </Badge>
-                  <StatusBadge status={studentFee.status} />
+                  <StatusBadge status={studentFee?.status || "unpaid"} />
                 </div>
               </div>
             </div>
@@ -298,71 +446,82 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         </CardContent>
       </Card>
       
-      {/* Fee Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Fee</CardDescription>
-            <CardTitle className="text-2xl">{formatCurrency(studentFee.totalAmount)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">Academic Year 2024-25</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Net Payable</CardDescription>
-            <CardTitle className="text-2xl">{formatCurrency(studentFee.netAmount)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              After discount (-{formatCurrency(studentFee.discountAmount)})
-              {studentFee.fineAmount > 0 && ` + fine (+${formatCurrency(studentFee.fineAmount)})`}
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Amount Paid</CardDescription>
-            <CardTitle className="text-2xl text-success">{formatCurrency(studentFee.paidAmount)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Progress value={collectionProgress} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-1">{collectionProgress.toFixed(0)}% collected</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Balance Due</CardDescription>
-            <CardTitle className={`text-2xl ${studentFee.balance > 0 ? "text-destructive" : "text-success"}`}>
-              {formatCurrency(studentFee.balance)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button 
-              size="sm" 
-              className="w-full"
-              onClick={() => setPaymentDialogOpen(true)}
-              disabled={studentFee.balance <= 0}
-            >
-              <CreditCard className="h-4 w-4 mr-2" />
-              Record Payment
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Tabs */}
-      <Tabs defaultValue="installments" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="installments">Installments</TabsTrigger>
-          <TabsTrigger value="payments">Payment History</TabsTrigger>
-          <TabsTrigger value="breakdown">Fee Breakdown</TabsTrigger>
-          <TabsTrigger value="discounts">Discounts & Fines</TabsTrigger>
-        </TabsList>
+      {!studentFee && (
+        <Alert>
+          <AlertTitle>Fee data unavailable</AlertTitle>
+          <AlertDescription>
+            This student does not have fee records available from the API yet.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {studentFee && (
+        <>
+          {/* Fee Summary Cards */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Total Fee</CardDescription>
+                <CardTitle className="text-2xl">{formatCurrency(studentFee.totalAmount)}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">Academic Year 2024-25</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Net Payable</CardDescription>
+                <CardTitle className="text-2xl">{formatCurrency(studentFee.netAmount)}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">
+                  After discount (-{formatCurrency(studentFee.discountAmount)})
+                  {studentFee.fineAmount > 0 && ` + fine (+${formatCurrency(studentFee.fineAmount)})`}
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Amount Paid</CardDescription>
+                <CardTitle className="text-2xl text-success">{formatCurrency(studentFee.paidAmount)}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Progress value={collectionProgress} className="h-2" />
+                <p className="text-xs text-muted-foreground mt-1">{collectionProgress.toFixed(0)}% collected</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Balance Due</CardDescription>
+                <CardTitle className={`text-2xl ${studentFee.balance > 0 ? "text-destructive" : "text-success"}`}>
+                  {formatCurrency(studentFee.balance)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => setPaymentDialogOpen(true)}
+                  disabled={studentFee.balance <= 0}
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Record Payment
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Tabs */}
+          <Tabs defaultValue="installments" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="installments">Installments</TabsTrigger>
+              <TabsTrigger value="payments">Payment History</TabsTrigger>
+              <TabsTrigger value="breakdown">Fee Breakdown</TabsTrigger>
+              <TabsTrigger value="discounts">Discounts & Fines</TabsTrigger>
+            </TabsList>
         
         {/* Installments Tab */}
         <TabsContent value="installments">
@@ -843,13 +1002,18 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             
             <div className="space-y-2">
               <Label>Apply to Installment (Optional)</Label>
-              <Select>
+              <Select
+                value={selectedFineInstallmentId ? selectedFineInstallmentId.toString() : "none"}
+                onValueChange={(value) =>
+                  setSelectedFineInstallmentId(value === "none" ? null : Number(value))
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select installment" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No specific installment</SelectItem>
-                  {studentFee.installments?.map((i) => (
+                  {studentFee?.installments?.map((i) => (
                     <SelectItem key={i.id} value={i.id.toString()}>
                       {i.name}
                     </SelectItem>
@@ -868,6 +1032,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </>
+      )}
     </div>
   )
 }

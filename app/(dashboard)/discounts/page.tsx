@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Plus, Percent, Users, Award, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,7 +31,9 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { students } from "@/lib/data"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { discountsApi, studentDiscountsApi, studentsApi } from "@/lib/api"
+import type { Discount, Student, StudentDiscount } from "@/lib/types"
 import { toast } from "sonner"
 
 const discountTypeConfig = {
@@ -43,27 +45,107 @@ const discountTypeConfig = {
 
 export default function DiscountsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [students, setStudents] = useState<Student[]>([])
+  const [discounts, setDiscounts] = useState<Discount[]>([])
+  const [studentDiscounts, setStudentDiscounts] = useState<StudentDiscount[]>([])
+  const [selectedStudentId, setSelectedStudentId] = useState("")
+  const [selectedDiscountId, setSelectedDiscountId] = useState("")
+  const [discountReason, setDiscountReason] = useState("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [studentsData, discountsData, studentDiscountsData] = await Promise.all([
+        studentsApi.getAll(),
+        discountsApi.getAll(),
+        studentDiscountsApi.getAll(),
+      ])
+      const discountMap = new Map(discountsData.map((discount) => [discount.id, discount]))
+      const studentMap = new Map(studentsData.map((student) => [student.id, student]))
+      setStudents(studentsData)
+      setDiscounts(discountsData)
+      setStudentDiscounts(
+        studentDiscountsData.map((sd) => ({
+          ...sd,
+          discount: sd.discount || discountMap.get(sd.discountId),
+          student: sd.student || studentMap.get(sd.studentId),
+        }))
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load discounts.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   // Aggregate all discounts from students
-  const allDiscounts = students.flatMap((student) =>
-    student.discounts.map((discount) => ({
-      ...discount,
-      studentId: student.id,
-      studentName: student.name,
-      studentClass: student.class,
-    }))
-  )
+  const allDiscounts = useMemo(() => {
+    return studentDiscounts.map((sd) => {
+      const discount = sd.discount
+      const amount =
+        sd.appliedAmount ??
+        (discount?.isPercentage ? 0 : discount?.amountOrPercentage ?? 0)
+      const name = discount?.name || "Discount"
+      const studentName = sd.student
+        ? `${sd.student.firstName} ${sd.student.lastName}`
+        : `Student ${sd.studentId}`
+      const studentClass = sd.student?.class
+        ? `${sd.student.class.name}-${sd.student.class.section}`
+        : "N/A"
+      const type = (() => {
+        const normalized = name.toLowerCase()
+        if (normalized.includes("sibling")) return "sibling"
+        if (normalized.includes("scholar")) return "scholarship"
+        if (normalized.includes("early")) return "early_payment"
+        return "manual"
+      })()
+
+      return {
+        ...sd,
+        type,
+        name,
+        amount,
+        studentName,
+        studentClass,
+      }
+    })
+  }, [studentDiscounts])
 
   const totalDiscountAmount = allDiscounts.reduce((a, d) => a + d.amount, 0)
   const siblingDiscounts = allDiscounts.filter((d) => d.type === "sibling").length
   const scholarshipDiscounts = allDiscounts.filter((d) => d.type === "scholarship").length
 
-  const handleAddDiscount = (e: React.FormEvent) => {
+  const handleAddDiscount = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsAddDialogOpen(false)
-    toast.success("Discount applied successfully", {
-      description: "The discount has been added to the student account.",
-    })
+    if (!selectedStudentId || !selectedDiscountId) {
+      toast.error("Please select a student and a discount.")
+      return
+    }
+
+    try {
+      await studentDiscountsApi.create({
+        studentId: Number(selectedStudentId),
+        discountId: Number(selectedDiscountId),
+        reason: discountReason,
+      })
+      toast.success("Discount applied successfully", {
+        description: "The discount has been added to the student account.",
+      })
+      setIsAddDialogOpen(false)
+      setSelectedStudentId("")
+      setSelectedDiscountId("")
+      setDiscountReason("")
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to apply discount.")
+    }
   }
 
   return (
@@ -93,57 +175,57 @@ export default function DiscountsPage() {
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
                   <Label htmlFor="student">Select Student</Label>
-                  <Select required>
+                  <Select
+                    required
+                    value={selectedStudentId}
+                    onValueChange={setSelectedStudentId}
+                  >
                     <SelectTrigger id="student">
                       <SelectValue placeholder="Choose a student" />
                     </SelectTrigger>
                     <SelectContent>
                       {students.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.name} ({student.class})
+                        <SelectItem key={student.id} value={student.id.toString()}>
+                          {student.firstName} {student.lastName} (
+                          {student.class
+                            ? `${student.class.name}-${student.class.section}`
+                            : "Class N/A"}
+                          )
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="type">Discount Type</Label>
-                  <Select required>
+                  <Label htmlFor="type">Discount</Label>
+                  <Select
+                    required
+                    value={selectedDiscountId}
+                    onValueChange={setSelectedDiscountId}
+                  >
                     <SelectTrigger id="type">
-                      <SelectValue placeholder="Select type" />
+                      <SelectValue placeholder="Select discount" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sibling">Sibling Discount</SelectItem>
-                      <SelectItem value="scholarship">Scholarship</SelectItem>
-                      <SelectItem value="early_payment">Early Payment</SelectItem>
-                      <SelectItem value="manual">Manual Discount</SelectItem>
+                      {discounts.map((discount) => (
+                        <SelectItem key={discount.id} value={discount.id.toString()}>
+                          {discount.name} (
+                          {discount.isPercentage
+                            ? `${discount.amountOrPercentage}%`
+                            : `₹${discount.amountOrPercentage}`}
+                          )
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="amount">Amount (₹)</Label>
-                    <Input
-                      id="amount"
-                      type="number"
-                      placeholder="Enter amount"
-                      required
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="percentage">Percentage (%)</Label>
-                    <Input
-                      id="percentage"
-                      type="number"
-                      placeholder="Optional"
-                    />
-                  </div>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="reason">Reason/Note</Label>
                   <Input
                     id="reason"
                     placeholder="Enter reason for discount"
+                    value={discountReason}
+                    onChange={(e) => setDiscountReason(e.target.value)}
                   />
                 </div>
               </div>
@@ -157,6 +239,16 @@ export default function DiscountsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Discount data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading discounts...</div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

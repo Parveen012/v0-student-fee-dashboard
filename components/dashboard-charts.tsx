@@ -14,20 +14,22 @@ import {
   Cell,
   Legend,
 } from "recharts"
-import { monthlyCollections, dashboardStats } from "@/lib/data"
+import type { DashboardStats, MonthlyCollection } from "@/lib/types"
 
 const COLORS = {
   collected: "hsl(var(--chart-1))",
   pending: "hsl(var(--chart-3))",
 }
 
-const pieData = [
-  { name: "Paid", value: dashboardStats.paidStudents, color: "hsl(var(--success))" },
-  { name: "Pending", value: dashboardStats.pendingStudents, color: "hsl(var(--warning))" },
-  { name: "Overdue", value: dashboardStats.overdueStudents, color: "hsl(var(--destructive))" },
-]
+interface MonthlyCollectionChartProps {
+  data: MonthlyCollection[]
+}
 
-export function MonthlyCollectionChart() {
+interface FeeStatusChartProps {
+  stats: DashboardStats
+}
+
+export function MonthlyCollectionChart({ data }: MonthlyCollectionChartProps) {
   return (
     <Card className="border-border/50 shadow-sm">
       <CardHeader>
@@ -36,8 +38,8 @@ export function MonthlyCollectionChart() {
       </CardHeader>
       <CardContent>
         <div className="h-[300px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyCollections} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
                 dataKey="month"
@@ -92,7 +94,13 @@ export function MonthlyCollectionChart() {
   )
 }
 
-export function FeeStatusChart() {
+export function FeeStatusChart({ stats }: FeeStatusChartProps) {
+  const pieData = [
+    { name: "Paid", value: stats.paidStudents, color: "hsl(var(--success))" },
+    { name: "Pending", value: stats.pendingStudents, color: "hsl(var(--warning))" },
+    { name: "Overdue", value: stats.overdueStudents, color: "hsl(var(--destructive))" },
+  ]
+
   return (
     <Card className="border-border/50 shadow-sm">
       <CardHeader>

@@ -10,18 +10,34 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { StatusBadge } from "@/components/status-badge"
-import { payments } from "@/lib/data"
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
+import type { PaymentStatus } from "@/lib/types"
 
-const paymentModeLabels = {
+const paymentModeLabels: Record<string, string> = {
   upi: "UPI",
   cash: "Cash",
   card: "Card",
   bank_transfer: "Bank Transfer",
+  cheque: "Cheque",
+  online: "Online",
 }
 
-export function RecentTransactions() {
+export interface RecentPayment {
+  id: number
+  studentName: string
+  className: string
+  amountPaid: number
+  mode: string
+  paymentDate: string
+  status?: PaymentStatus
+}
+
+interface RecentTransactionsProps {
+  payments: RecentPayment[]
+}
+
+export function RecentTransactions({ payments }: RecentTransactionsProps) {
   const recentPayments = payments.slice(0, 6)
 
   return (
@@ -46,20 +62,20 @@ export function RecentTransactions() {
             {recentPayments.map((payment) => (
               <TableRow key={payment.id} className="hover:bg-muted/50">
                 <TableCell className="font-medium">{payment.studentName}</TableCell>
-                <TableCell className="text-muted-foreground">{payment.class}</TableCell>
+                <TableCell className="text-muted-foreground">{payment.className}</TableCell>
                 <TableCell className="font-medium">
-                  ₹{payment.amount.toLocaleString("en-IN")}
+                  ₹{payment.amountPaid.toLocaleString("en-IN")}
                 </TableCell>
                 <TableCell>
                   <Badge variant="secondary" className="font-normal">
-                    {paymentModeLabels[payment.mode]}
+                    {paymentModeLabels[payment.mode] || payment.mode}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {format(new Date(payment.date), "dd MMM yyyy")}
+                  {format(new Date(payment.paymentDate), "dd MMM yyyy")}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={payment.status} />
+                  <StatusBadge status={payment.status || "completed"} />
                 </TableCell>
               </TableRow>
             ))}

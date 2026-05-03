@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Search, ChevronDown, ChevronRight, Calendar, IndianRupee } from "lucide-react"
 import { format } from "date-fns"
 import { Input } from "@/components/ui/input"
@@ -20,24 +20,72 @@ import {
 } from "@/components/ui/collapsible"
 import { Progress } from "@/components/ui/progress"
 import { StatusBadge } from "@/components/status-badge"
-import { students, classes } from "@/lib/data"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { classesApi, studentsApi } from "@/lib/api"
+import type { Class, Student, StudentFee } from "@/lib/types"
 
 export default function InstallmentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [classFilter, setClassFilter] = useState<string>("all")
   const [expandedStudents, setExpandedStudents] = useState<string[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [studentsData, classesData] = await Promise.all([
+        studentsApi.getAll(),
+        classesApi.getAll(),
+      ])
+      setStudents(studentsData)
+      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+      setClasses(classesData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load installments.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const studentsWithInstallments = useMemo(() => {
+    const feeMap = new Map(studentFees.map((fee) => [fee.studentId, fee]))
+    const classMap = new Map(classes.map((cls) => [cls.id, cls]))
+    return students.map((student) => {
+      const fee = feeMap.get(student.id)
+      const classInfo = student.class || (student.classId ? classMap.get(student.classId) : undefined)
+      return {
+        ...student,
+        fee,
+        installments: fee?.installments || [],
+        feeStatus: fee?.status || "unpaid",
+        totalFee: fee?.totalAmount || 0,
+        className: classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A",
+      }
+    })
+  }, [classes, studentFees, students])
 
   const filteredStudents = useMemo(() => {
-    return students.filter((student) => {
+    return studentsWithInstallments.filter((student) => {
+      const studentLabel = `STU${String(student.id).padStart(3, "0")}`.toLowerCase()
+      const studentName = `${student.firstName} ${student.lastName}`.toLowerCase()
       const matchesSearch =
-        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.id.toLowerCase().includes(searchQuery.toLowerCase())
+        studentName.includes(searchQuery.toLowerCase()) ||
+        studentLabel.includes(searchQuery.toLowerCase())
 
-      const matchesClass = classFilter === "all" || student.class === classFilter
+      const matchesClass = classFilter === "all" || student.className === classFilter
 
       return matchesSearch && matchesClass
     })
-  }, [searchQuery, classFilter])
+  }, [classFilter, searchQuery, studentsWithInstallments])
 
   const toggleExpanded = (studentId: string) => {
     setExpandedStudents((prev) =>
@@ -47,12 +95,12 @@ export default function InstallmentsPage() {
     )
   }
 
-  const totalInstallments = students.reduce((a, s) => a + s.installments.length, 0)
-  const paidInstallments = students.reduce(
+  const totalInstallments = studentsWithInstallments.reduce((a, s) => a + s.installments.length, 0)
+  const paidInstallments = studentsWithInstallments.reduce(
     (a, s) => a + s.installments.filter((i) => i.status === "paid").length,
     0
   )
-  const overdueInstallments = students.reduce(
+  const overdueInstallments = studentsWithInstallments.reduce(
     (a, s) => a + s.installments.filter((i) => i.status === "overdue").length,
     0
   )
@@ -65,6 +113,16 @@ export default function InstallmentsPage() {
           View and manage student fee installment plans
         </p>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Installment data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading installments...</div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -110,11 +168,14 @@ export default function InstallmentsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                {classes.map((cls) => (
-                  <SelectItem key={cls} value={cls}>
-                    {cls}
-                  </SelectItem>
-                ))}
+                {classes.map((cls) => {
+                  const className = `${cls.name}-${cls.section}`
+                  return (
+                    <SelectItem key={cls.id} value={className}>
+                      {className}
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -136,15 +197,19 @@ export default function InstallmentsPage() {
             </div>
           ) : (
             filteredStudents.map((student) => {
-              const isExpanded = expandedStudents.includes(student.id)
+              const studentKey = student.id.toString()
+              const isExpanded = expandedStudents.includes(studentKey)
               const paidCount = student.installments.filter((i) => i.status === "paid").length
-              const progress = (paidCount / student.installments.length) * 100
+              const progress =
+                student.installments.length > 0
+                  ? (paidCount / student.installments.length) * 100
+                  : 0
 
               return (
                 <Collapsible
                   key={student.id}
                   open={isExpanded}
-                  onOpenChange={() => toggleExpanded(student.id)}
+                  onOpenChange={() => toggleExpanded(studentKey)}
                 >
                   <div className="rounded-lg border border-border bg-card">
                     <CollapsibleTrigger asChild>
@@ -159,9 +224,9 @@ export default function InstallmentsPage() {
                             <ChevronRight className="size-4 text-muted-foreground" />
                           )}
                           <div className="flex flex-col items-start gap-1">
-                            <span className="font-medium">{student.name}</span>
+                            <span className="font-medium">{student.firstName} {student.lastName}</span>
                             <span className="text-xs text-muted-foreground">
-                              {student.class} | {student.id}
+                              {student.className} | STU{String(student.id).padStart(3, "0")}
                             </span>
                           </div>
                         </div>

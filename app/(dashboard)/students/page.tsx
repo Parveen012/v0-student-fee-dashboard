@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Plus, Search, Filter, MoreHorizontal, Mail, Phone, Eye, Edit, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -41,8 +41,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { students, studentFees, classes } from "@/lib/mock-data"
+import { classesApi, studentsApi } from "@/lib/api"
+import type { Class, CreateStudentCommand, Student, StudentFee } from "@/lib/types"
 
 // Status badge component
 function StatusBadge({ status }: { status: string }) {
@@ -75,24 +77,67 @@ export default function StudentsPage() {
   const [classFilter, setClassFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [newStudent, setNewStudent] = useState({
+    firstName: "",
+    lastName: "",
+    classId: "",
+    gender: "",
+    dob: "",
+    admissionDate: "",
+  })
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [studentsData, classesData] = await Promise.all([
+        studentsApi.getAll(),
+        classesApi.getAll(),
+      ])
+      setStudents(studentsData)
+      setClasses(classesData)
+      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load student data.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const tenantId = useMemo(() => {
+    const envTenant = process.env.NEXT_PUBLIC_TENANT_ID
+    if (envTenant && !Number.isNaN(Number(envTenant))) return Number(envTenant)
+    return students[0]?.tenantId ?? 1
+  }, [students])
 
   // Combine student data with fees
   const studentsWithFees = useMemo(() => {
-    return students.map(student => {
-      const fee = studentFees.find(sf => sf.studentId === student.id)
+    const classMap = new Map(classes.map((cls) => [cls.id, cls]))
+    return students.map((student) => {
+      const fee = studentFees.find((sf) => sf.studentId === student.id)
+      const classInfo = student.class || (student.classId ? classMap.get(student.classId) : undefined)
       return {
         ...student,
         fee,
-        className: student.class ? `${student.class.name}-${student.class.section}` : "N/A",
+        className: classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A",
       }
     })
-  }, [])
+  }, [classes, studentFees, students])
 
   // Get unique class names for filter
   const classNames = useMemo(() => {
-    const names = new Set(classes.map(c => `${c.name}-${c.section}`))
+    const names = new Set(classes.map((c) => `${c.name}-${c.section}`))
     return Array.from(names).sort()
-  }, [])
+  }, [classes])
 
   const filteredStudents = useMemo(() => {
     return studentsWithFees.filter((student) => {
@@ -109,12 +154,45 @@ export default function StudentsPage() {
     })
   }, [studentsWithFees, searchQuery, classFilter, statusFilter])
 
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsAddDialogOpen(false)
-    toast.success("Student added successfully", {
-      description: "The new student has been added to the system.",
-    })
+
+    if (!newStudent.firstName || !newStudent.lastName || !newStudent.classId || !newStudent.gender) {
+      toast.error("Please fill all required student fields.")
+      return
+    }
+
+    const payload: CreateStudentCommand = {
+      tenantId,
+      firstName: newStudent.firstName,
+      lastName: newStudent.lastName,
+      dob: newStudent.dob ? new Date(newStudent.dob).toISOString() : null,
+      gender: newStudent.gender,
+      classId: Number(newStudent.classId),
+      admissionDate: newStudent.admissionDate
+        ? new Date(newStudent.admissionDate).toISOString()
+        : new Date().toISOString(),
+      status: "active",
+    }
+
+    try {
+      await studentsApi.create(payload)
+      toast.success("Student added successfully", {
+        description: "The new student has been added to the system.",
+      })
+      setIsAddDialogOpen(false)
+      setNewStudent({
+        firstName: "",
+        lastName: "",
+        classId: "",
+        gender: "",
+        dob: "",
+        admissionDate: "",
+      })
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add student.")
+    }
   }
 
   // Summary stats
@@ -156,24 +234,46 @@ export default function StudentsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="firstName">First Name</Label>
-                    <Input id="firstName" placeholder="First name" required />
+                    <Input
+                      id="firstName"
+                      placeholder="First name"
+                      required
+                      value={newStudent.firstName}
+                      onChange={(e) =>
+                        setNewStudent((prev) => ({ ...prev, firstName: e.target.value }))
+                      }
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="lastName">Last Name</Label>
-                    <Input id="lastName" placeholder="Last name" required />
+                    <Input
+                      id="lastName"
+                      placeholder="Last name"
+                      required
+                      value={newStudent.lastName}
+                      onChange={(e) =>
+                        setNewStudent((prev) => ({ ...prev, lastName: e.target.value }))
+                      }
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="class">Class</Label>
-                    <Select required>
+                    <Select
+                      required
+                      value={newStudent.classId}
+                      onValueChange={(value) =>
+                        setNewStudent((prev) => ({ ...prev, classId: value }))
+                      }
+                    >
                       <SelectTrigger id="class">
                         <SelectValue placeholder="Select class" />
                       </SelectTrigger>
                       <SelectContent>
-                        {classNames.map((cls) => (
-                          <SelectItem key={cls} value={cls}>
-                            {cls}
+                        {classes.map((cls) => (
+                          <SelectItem key={cls.id} value={cls.id.toString()}>
+                            {cls.name}-{cls.section}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -181,7 +281,13 @@ export default function StudentsPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="gender">Gender</Label>
-                    <Select required>
+                    <Select
+                      required
+                      value={newStudent.gender}
+                      onValueChange={(value) =>
+                        setNewStudent((prev) => ({ ...prev, gender: value }))
+                      }
+                    >
                       <SelectTrigger id="gender">
                         <SelectValue placeholder="Select gender" />
                       </SelectTrigger>
@@ -195,11 +301,25 @@ export default function StudentsPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="dob">Date of Birth</Label>
-                  <Input id="dob" type="date" required />
+                  <Input
+                    id="dob"
+                    type="date"
+                    required
+                    value={newStudent.dob}
+                    onChange={(e) => setNewStudent((prev) => ({ ...prev, dob: e.target.value }))}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="admissionDate">Admission Date</Label>
-                  <Input id="admissionDate" type="date" required />
+                  <Input
+                    id="admissionDate"
+                    type="date"
+                    required
+                    value={newStudent.admissionDate}
+                    onChange={(e) =>
+                      setNewStudent((prev) => ({ ...prev, admissionDate: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
               <DialogFooter>
@@ -212,6 +332,16 @@ export default function StudentsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Student data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading students...</div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -325,7 +455,10 @@ export default function StudentsPage() {
                   </TableRow>
                 ) : (
                   filteredStudents.map((student) => {
-                    const progress = student.fee ? (student.fee.paidAmount / student.fee.netAmount) * 100 : 0
+                    const progress =
+                      student.fee && student.fee.netAmount > 0
+                        ? (student.fee.paidAmount / student.fee.netAmount) * 100
+                        : 0
                     return (
                       <TableRow key={student.id} className="hover:bg-muted/50">
                         <TableCell>

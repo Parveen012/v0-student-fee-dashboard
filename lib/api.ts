@@ -31,6 +31,18 @@ import type {
 } from "./types"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY
+const API_KEY_HEADER = process.env.NEXT_PUBLIC_API_KEY_HEADER || "X-API-KEY"
+const DEFAULT_TENANT_ID =
+  process.env.NEXT_PUBLIC_TENANT_ID &&
+  !Number.isNaN(Number(process.env.NEXT_PUBLIC_TENANT_ID))
+    ? Number(process.env.NEXT_PUBLIC_TENANT_ID)
+    : 1
+
+function withTenantId<T extends { tenantId?: number }>(data: T): T & { tenantId: number } {
+  if (typeof data.tenantId === "number") return data as T & { tenantId: number }
+  return { ...data, tenantId: DEFAULT_TENANT_ID }
+}
 
 // Generic fetch wrapper with error handling
 async function fetchApi<T>(
@@ -42,6 +54,7 @@ async function fetchApi<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(API_KEY ? { [API_KEY_HEADER]: API_KEY } : {}),
       ...options?.headers,
     },
   })
@@ -64,7 +77,7 @@ export const classesApi = {
   create: (data: CreateClassCommand) =>
     fetchApi<Class>("/Classes", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/Classes/${id}`, { method: "DELETE" }),
@@ -77,7 +90,7 @@ export const sessionsApi = {
   create: (data: CreateSessionCommand) =>
     fetchApi<Session>("/Sessions", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/Sessions/${id}`, { method: "DELETE" }),
@@ -90,12 +103,12 @@ export const studentsApi = {
   create: (data: CreateStudentCommand) =>
     fetchApi<Student>("/Students", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   update: (id: number, data: UpdateStudentCommand) =>
     fetchApi<Student>(`/Students/${id}`, {
       method: "PUT",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/Students/${id}`, { method: "DELETE" }),
@@ -107,7 +120,7 @@ export const parentsApi = {
   create: (data: CreateParentCommand) =>
     fetchApi<Parent>("/Parents", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
 }
 
@@ -118,7 +131,7 @@ export const feeComponentsApi = {
   create: (data: CreateFeeComponentCommand) =>
     fetchApi<FeeComponent>("/FeeComponents", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/FeeComponents/${id}`, { method: "DELETE" }),
@@ -131,7 +144,7 @@ export const feeStructuresApi = {
   create: (data: CreateFeeStructureCommand) =>
     fetchApi<FeeStructure>("/FeeStructures", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/FeeStructures/${id}`, { method: "DELETE" }),
@@ -143,7 +156,7 @@ export const paymentsApi = {
   create: (data: CreatePaymentCommand) =>
     fetchApi<Payment>("/Payments", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
 }
 
@@ -154,7 +167,7 @@ export const discountsApi = {
   create: (data: CreateDiscountCommand) =>
     fetchApi<Discount>("/Discounts", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/Discounts/${id}`, { method: "DELETE" }),
@@ -167,7 +180,7 @@ export const studentDiscountsApi = {
   create: (data: CreateStudentDiscountCommand) =>
     fetchApi<StudentDiscount>("/StudentDiscounts", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/StudentDiscounts/${id}`, { method: "DELETE" }),
@@ -180,7 +193,7 @@ export const finesApi = {
   create: (data: CreateFineCommand) =>
     fetchApi<Fine>("/Fines", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/Fines/${id}`, { method: "DELETE" }),
@@ -193,12 +206,12 @@ export const studentFinesApi = {
   create: (data: CreateStudentFineCommand) =>
     fetchApi<StudentFine>("/StudentFines", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   update: (id: number, data: UpdateStudentFineCommand) =>
     fetchApi<StudentFine>(`/StudentFines/${id}`, {
       method: "PUT",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/StudentFines/${id}`, { method: "DELETE" }),

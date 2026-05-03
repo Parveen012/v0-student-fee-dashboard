@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import type { FeeStatus } from "@/lib/data"
+import type { FeeStatus } from "@/lib/types"
 
 interface StatusBadgeProps {
   status: FeeStatus | "completed" | "pending" | "failed"
@@ -10,6 +10,18 @@ const statusConfig = {
   paid: {
     label: "Paid",
     className: "bg-success/10 text-success border-success/20",
+  },
+  partial: {
+    label: "Partial",
+    className: "bg-warning/10 text-warning-foreground border-warning/20",
+  },
+  unpaid: {
+    label: "Unpaid",
+    className: "bg-muted text-muted-foreground border-muted",
+  },
+  overpaid: {
+    label: "Overpaid",
+    className: "bg-primary/10 text-primary border-primary/20",
   },
   completed: {
     label: "Completed",
@@ -30,7 +42,7 @@ const statusConfig = {
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const config = statusConfig[status]
+  const config = statusConfig[status] || statusConfig.pending
 
   return (
     <span

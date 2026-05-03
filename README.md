@@ -24,6 +24,18 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## API Configuration
+
+The dashboard reads and writes data through a Next.js API proxy that forwards to your backend.
+
+1. Copy `.env.example` to `.env.local`.
+2. Set `API_URL=https://localhost:7163/api` (the Swagger base URL).
+3. If your backend uses a self-signed cert in dev, set `ALLOW_SELF_SIGNED_CERT=true`.
+4. If your backend requires an API key, set `API_KEY` and (optionally) `API_KEY_HEADER`.
+5. For write operations (create student/discount/payment), set `NEXT_PUBLIC_TENANT_ID` to your tenant ID.
+
+If you want the browser to call the backend directly, set `NEXT_PUBLIC_API_URL` (and `NEXT_PUBLIC_API_KEY` if required). This bypasses the proxy and exposes the key to the client, so prefer the server proxy when possible.
+
 ## Learn More
 
 To learn more, take a look at the following resources:

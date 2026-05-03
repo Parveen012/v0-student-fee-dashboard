@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Plus,
   Pencil,
@@ -47,7 +47,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { sessions, classes, feeComponents, students } from "@/lib/mock-data"
+import { classesApi, feeComponentsApi, feeStructuresApi, sessionsApi, studentsApi } from "@/lib/api"
+import type { Class, FeeComponent, FeeStructure, Session, Student } from "@/lib/types"
 
 // Fee by class (simulated existing fee structure)
 const feeByClass: Record<number, number> = {
@@ -56,16 +57,6 @@ const feeByClass: Record<number, number> = {
   5: 70000, 6: 70000, 7: 70000,
   8: 75000, 9: 75000,
   10: 85000, 11: 85000,
-}
-
-// Fee component percentages
-const feeBreakdown: Record<string, number> = {
-  tuition: 0.65,
-  transport: 0.15,
-  lab: 0.08,
-  library: 0.04,
-  sports: 0.05,
-  exam: 0.03,
 }
 
 // Format currency
@@ -94,40 +85,124 @@ const installmentPresets = [
 ]
 
 export default function FeeStructurePage() {
-  const [selectedSession, setSelectedSession] = useState(sessions.find(s => s.isActive)?.id.toString() || "1")
+  const [selectedSession, setSelectedSession] = useState("")
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [editingClassId, setEditingClassId] = useState<number | null>(null)
   const [editValues, setEditValues] = useState<Record<string, number>>({})
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
+  const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   // Fee generation form state
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
   const [installmentPreset, setInstallmentPreset] = useState("4")
   const [customInstallments, setCustomInstallments] = useState<{ name: string; percentage: number; dueDate: string }[]>([])
   const [generationStep, setGenerationStep] = useState(1)
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [sessionsData, classesData, feeComponentsData, feeStructuresData, studentsData] =
+        await Promise.all([
+          sessionsApi.getAll(),
+          classesApi.getAll(),
+          feeComponentsApi.getAll(),
+          feeStructuresApi.getAll(),
+          studentsApi.getAll(),
+        ])
+      setSessions(sessionsData)
+      setClasses(classesData)
+      setFeeComponents(feeComponentsData)
+      setFeeStructures(feeStructuresData)
+      setStudents(studentsData)
+      if (!selectedSession) {
+        const activeSession = sessionsData.find((session) => session.isActive) || sessionsData[0]
+        if (activeSession) setSelectedSession(activeSession.id.toString())
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load fee structure data.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [selectedSession])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
   
-  // Build fee structure data from mock data
+  // Build fee structure data from API
   const feeStructureData = useMemo(() => {
-    return classes.map(cls => {
-      const totalFee = feeByClass[cls.id] || 70000
-      const studentCount = students.filter(s => s.classId === cls.id).length
+    const feeComponentMap = new Map(feeComponents.map((component) => [component.id, component]))
+    const feeStructureMap = new Map<number, FeeStructure>()
+    const selectedSessionId = selectedSession ? Number(selectedSession) : null
+    feeStructures.forEach((structure) => {
+      if (!selectedSessionId || structure.sessionId === selectedSessionId) {
+        feeStructureMap.set(structure.classId, structure)
+      }
+    })
+
+    return classes.map((cls) => {
+      const structure = feeStructureMap.get(cls.id)
+      const components = structure?.feeStructureComponents || []
+      const totals = {
+        tuitionFee: 0,
+        transportFee: 0,
+        labFee: 0,
+        libraryFee: 0,
+        sportsFee: 0,
+        examFee: 0,
+        otherFee: 0,
+      }
+
+      components.forEach((component) => {
+        const componentType =
+          component.feeComponent?.type || feeComponentMap.get(component.feeComponentId)?.type || "other"
+        const amount = component.amount || 0
+        if (componentType === "tuition") totals.tuitionFee += amount
+        else if (componentType === "transport") totals.transportFee += amount
+        else if (componentType === "lab") totals.labFee += amount
+        else if (componentType === "library") totals.libraryFee += amount
+        else if (componentType === "sports") totals.sportsFee += amount
+        else if (componentType === "exam") totals.examFee += amount
+        else totals.otherFee += amount
+      })
+
+      const totalFee = components.length
+        ? Object.values(totals).reduce((sum, value) => sum + value, 0)
+        : feeByClass[cls.id] || 0
+      const studentCount = students.filter((student) => student.classId === cls.id).length
+
       return {
         classId: cls.id,
         className: `${cls.name}-${cls.section}`,
         totalFee,
-        tuitionFee: Math.round(totalFee * feeBreakdown.tuition),
-        transportFee: Math.round(totalFee * feeBreakdown.transport),
-        labFee: Math.round(totalFee * feeBreakdown.lab),
-        libraryFee: Math.round(totalFee * feeBreakdown.library),
-        sportsFee: Math.round(totalFee * feeBreakdown.sports),
-        examFee: Math.round(totalFee * feeBreakdown.exam),
+        ...totals,
         studentCount,
       }
     })
-  }, [])
+  }, [classes, feeComponents, feeStructures, selectedSession, students])
+
+  const hasComponentBreakdown = useMemo(() => {
+    return feeStructures.some((structure) => (structure.feeStructureComponents || []).length > 0)
+  }, [feeStructures])
   
   // Stats
   const stats = useMemo(() => {
     const fees = feeStructureData.map(f => f.totalFee)
+    if (fees.length === 0) {
+      return {
+        avgFee: 0,
+        maxFee: 0,
+        minFee: 0,
+        totalClasses: 0,
+        totalStudents: 0,
+      }
+    }
     return {
       avgFee: Math.round(fees.reduce((a, b) => a + b, 0) / fees.length),
       maxFee: Math.max(...fees),
@@ -250,6 +325,26 @@ export default function FeeStructurePage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Fee structure data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading fee structures...</div>
+      )}
+      {!isLoading && !error && !hasComponentBreakdown && (
+        <Alert>
+          <AlertTitle>Fee component amounts missing</AlertTitle>
+          <AlertDescription>
+            The API did not return fee component amounts for the selected session, so default
+            placeholders are shown. Update the backend to include fee structure components to see
+            accurate totals.
+          </AlertDescription>
+        </Alert>
+      )}
       
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">

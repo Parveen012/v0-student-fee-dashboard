@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Plus,
@@ -54,12 +54,10 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Alert,
-  AlertDescription,
-} from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { payments, students, studentFees } from "@/lib/mock-data"
+import { paymentsApi, studentsApi } from "@/lib/api"
+import type { Payment, Student, StudentFee } from "@/lib/types"
 
 // Status badge component
 function StatusBadge({ status }: { status: string }) {
@@ -124,6 +122,11 @@ export default function PaymentsPage() {
   const [modeFilter, setModeFilter] = useState<string>("all")
   const [dateFilter, setDateFilter] = useState<string>("all")
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   // Payment form state
   const [selectedStudentId, setSelectedStudentId] = useState("")
@@ -131,6 +134,28 @@ export default function PaymentsPage() {
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentMode, setPaymentMode] = useState("upi")
   const [transactionId, setTransactionId] = useState("")
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [studentsData, paymentsData] = await Promise.all([
+        studentsApi.getAll(),
+        paymentsApi.getAll(),
+      ])
+      setStudents(studentsData)
+      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+      setPayments(paymentsData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load payments.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [payments, studentFees, students])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
   
   // Get payments with student info
   const paymentsWithInfo = useMemo(() => {
@@ -145,7 +170,7 @@ export default function PaymentsPage() {
         installment,
       }
     })
-  }, [])
+  }, [payments])
   
   // Filter payments
   const filteredPayments = useMemo(() => {
@@ -194,7 +219,7 @@ export default function PaymentsPage() {
   const selectedStudentFee = useMemo(() => {
     if (!selectedStudentId) return null
     return studentFees.find(sf => sf.studentId === parseInt(selectedStudentId))
-  }, [selectedStudentId])
+  }, [selectedStudentId, studentFees])
   
   // Get selected installment info
   const selectedInstallment = useMemo(() => {
@@ -214,7 +239,7 @@ export default function PaymentsPage() {
   }, [paymentAmount, selectedInstallment, selectedStudentFee])
   
   // Handle payment submission
-  const handlePaymentSubmit = () => {
+  const handlePaymentSubmit = async () => {
     const amount = parseFloat(paymentAmount)
     if (isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount")
@@ -225,17 +250,43 @@ export default function PaymentsPage() {
       toast.error("Please select a student")
       return
     }
-    
-    // API call would go here: paymentsApi.create({...})
-    toast.success("Payment recorded successfully", {
-      description: `Payment of ${formatCurrency(amount)} has been recorded.`
-    })
-    
-    setPaymentDialogOpen(false)
-    setSelectedStudentId("")
-    setSelectedInstallmentId("")
-    setPaymentAmount("")
-    setTransactionId("")
+
+    const studentId = Number(selectedStudentId)
+    const student = students.find((s) => s.id === studentId)
+    if (!student) {
+      toast.error("Selected student not found.")
+      return
+    }
+
+    const studentFee = studentFees.find((sf) => sf.studentId === studentId)
+    if (!studentFee) {
+      toast.error("No fee record found for the selected student.")
+      return
+    }
+
+    try {
+      await paymentsApi.create({
+        studentFeeId: studentFee.id,
+        installmentId: selectedInstallmentId ? Number(selectedInstallmentId) : null,
+        amountPaid: amount,
+        paymentDate: new Date().toISOString(),
+        mode: paymentMode,
+        transactionId: transactionId || null,
+        studentId: student.id,
+        tenantId: student.tenantId,
+      })
+      toast.success("Payment recorded successfully", {
+        description: `Payment of ${formatCurrency(amount)} has been recorded.`,
+      })
+      setPaymentDialogOpen(false)
+      setSelectedStudentId("")
+      setSelectedInstallmentId("")
+      setPaymentAmount("")
+      setTransactionId("")
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment.")
+    }
   }
   
   return (
@@ -258,7 +309,17 @@ export default function PaymentsPage() {
           </Button>
         </div>
       </div>
-      
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Payment data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {isLoading && !error && (
+        <div className="text-sm text-muted-foreground">Loading payments...</div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
@@ -407,7 +468,9 @@ export default function PaymentsPage() {
                               {payment.student?.firstName} {payment.student?.lastName}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {payment.student?.class?.name}-{payment.student?.class?.section}
+                              {payment.student?.class
+                                ? `${payment.student.class.name}-${payment.student.class.section}`
+                                : "Class N/A"}
                             </span>
                           </div>
                         </Link>
@@ -491,7 +554,8 @@ export default function PaymentsPage() {
                   <SelectContent>
                     {students.map((s) => (
                       <SelectItem key={s.id} value={s.id.toString()}>
-                        {s.firstName} {s.lastName} - {s.class?.name}-{s.class?.section}
+                        {s.firstName} {s.lastName} -{" "}
+                        {s.class ? `${s.class.name}-${s.class.section}` : "Class N/A"}
                       </SelectItem>
                     ))}
                   </SelectContent>
