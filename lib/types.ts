@@ -248,6 +248,24 @@ export interface CreateFeeStructureCommand {
   sessionId: number
 }
 
+export interface GenerateFeeStructureCommand {
+  tenantId?: number
+  sessionId: number
+  classes: Array<{
+    classId: number
+    studentIds: number[]
+    components: Array<{
+      componentId: number
+      amount: number
+    }>
+    installments: Array<{
+      name: string
+      dueDate: string
+      amount: number
+    }>
+  }>
+}
+
 export interface CreateFineCommand {
   tenantId?: number
   name: string

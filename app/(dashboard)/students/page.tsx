@@ -43,7 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { StatusBadge } from "@/components/status-badge"
-import { classesApi, studentsApi } from "@/lib/api"
+import { classesApi, studentFeesApi, studentsApi } from "@/lib/api"
 import type { Class, CreateStudentCommand, Student, StudentFee } from "@/lib/types"
 
 function formatCurrency(amount: number) {
@@ -60,6 +60,7 @@ export default function StudentsPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [students, setStudents] = useState<Student[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -76,12 +77,16 @@ export default function StudentsPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const [studentsData, classesData] = await Promise.all([
+      const [studentsData, classesData, feesData] = await Promise.all([
         studentsApi.getAll(),
         classesApi.getAll(),
+        studentFeesApi.getAll().catch(() => []),
       ])
       setStudents(studentsData)
       setClasses(classesData)
+      setStudentFees(
+        feesData.length > 0 ? feesData : studentsData.flatMap((student) => student.studentFees || [])
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load student data.")
     } finally {
@@ -95,8 +100,9 @@ export default function StudentsPage() {
 
   const rows = useMemo(() => {
     const classMap = new Map(classes.map((cls) => [cls.id, cls]))
+    const feeMap = new Map(studentFees.map((fee) => [fee.studentId, fee]))
     return students.map((student) => {
-      const fee = student.studentFees?.[0]
+      const fee = feeMap.get(student.id)
       const classInfo = student.class || (student.classId ? classMap.get(student.classId) : undefined)
       return {
         student,
@@ -104,7 +110,7 @@ export default function StudentsPage() {
         className: classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A",
       }
     })
-  }, [classes, students])
+  }, [classes, studentFees, students])
 
   const filteredRows = useMemo(() => {
     const query = searchQuery.toLowerCase()
@@ -119,8 +125,8 @@ export default function StudentsPage() {
   }, [classFilter, rows, searchQuery, statusFilter])
 
   const allFees = useMemo(
-    () => students.flatMap((student) => student.studentFees || []),
-    [students]
+    () => studentFees,
+    [studentFees]
   )
 
   const stats = {

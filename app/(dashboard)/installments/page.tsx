@@ -21,7 +21,7 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { StatusBadge } from "@/components/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { classesApi, studentsApi } from "@/lib/api"
+import { classesApi, studentFeesApi, studentsApi } from "@/lib/api"
 import type { Class, Student, StudentFee } from "@/lib/types"
 
 export default function InstallmentsPage() {
@@ -38,12 +38,15 @@ export default function InstallmentsPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const [studentsData, classesData] = await Promise.all([
+      const [studentsData, classesData, feesData] = await Promise.all([
         studentsApi.getAll(),
         classesApi.getAll(),
+        studentFeesApi.getAll().catch(() => []),
       ])
       setStudents(studentsData)
-      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+      setStudentFees(
+        feesData.length > 0 ? feesData : studentsData.flatMap((student) => student.studentFees || [])
+      )
       setClasses(classesData)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load installments.")

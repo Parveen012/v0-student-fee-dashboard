@@ -111,12 +111,19 @@ export default function PaymentsPage() {
       setStudentFee(data)
       setSelectedInstallments([])
     } catch (err) {
-      setStudentFee(null)
-      setFeeError(err instanceof Error ? err.message : "Failed to load student fee.")
+      const fallbackFee = students.find((student) => student.id === Number(studentId))?.studentFees?.[0]
+      if (fallbackFee) {
+        setStudentFee(fallbackFee)
+        setSelectedInstallments([])
+        setFeeError(null)
+      } else {
+        setStudentFee(null)
+        setFeeError(err instanceof Error ? err.message : "Failed to load student fee.")
+      }
     } finally {
       setIsFeeLoading(false)
     }
-  }, [])
+  }, [students])
 
   useEffect(() => {
     loadBaseData()
@@ -203,7 +210,12 @@ export default function PaymentsPage() {
         const fee = await studentFeesApi.getByStudentId(student.id)
         setGroupFeeMap((prev) => ({ ...prev, [student.id]: fee }))
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : `Failed to load fee for ${studentName(student)}.`)
+        const fallbackFee = student.studentFees?.[0]
+        if (fallbackFee) {
+          setGroupFeeMap((prev) => ({ ...prev, [student.id]: fallbackFee }))
+        } else {
+          toast.error(err instanceof Error ? err.message : `Failed to load fee for ${studentName(student)}.`)
+        }
       }
     }
   }

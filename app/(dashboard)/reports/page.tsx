@@ -31,7 +31,7 @@ import {
   Line,
 } from "recharts"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { classesApi, paymentsApi, studentsApi } from "@/lib/api"
+import { classesApi, paymentsApi, studentFeesApi, studentsApi } from "@/lib/api"
 import type { Class, MonthlyCollection, Payment, Student, StudentFee } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -49,13 +49,16 @@ export default function ReportsPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const [studentsData, paymentsData, classesData] = await Promise.all([
+      const [studentsData, paymentsData, classesData, feesData] = await Promise.all([
         studentsApi.getAll(),
         paymentsApi.getAll(),
         classesApi.getAll(),
+        studentFeesApi.getAll().catch(() => []),
       ])
       setStudents(studentsData)
-      setStudentFees(studentsData.flatMap((student) => student.studentFees || []))
+      setStudentFees(
+        feesData.length > 0 ? feesData : studentsData.flatMap((student) => student.studentFees || [])
+      )
       setPayments(paymentsData)
       setClasses(classesData)
     } catch (err) {

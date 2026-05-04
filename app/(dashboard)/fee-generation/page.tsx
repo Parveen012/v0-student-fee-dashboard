@@ -42,8 +42,8 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { classesApi, feeComponentsApi, sessionsApi, studentsApi } from "@/lib/api"
-import type { Class, FeeComponent, Session, Student } from "@/lib/types"
+import { classesApi, feeComponentsApi, feeStructuresApi, sessionsApi, studentsApi } from "@/lib/api"
+import type { Class, FeeComponent, GenerateFeeStructureCommand, Session, Student } from "@/lib/types"
 
 // Step indicator component
 function StepIndicator({ currentStep, steps }: { currentStep: number; steps: string[] }) {
@@ -115,6 +115,7 @@ export default function FeeGenerationPage() {
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [installments, setInstallments] = useState<Installment[]>([
     { id: 1, name: "Q1 (Apr-Jun)", dueDate: "2024-04-15", percentage: 25 },
@@ -304,10 +305,57 @@ export default function FeeGenerationPage() {
   }
   
   // Handle generation
-  const handleGenerate = () => {
-    toast.success("Fee structure generated successfully", {
-      description: `Generated fees for ${affectedStudents.length} students across ${selectedClasses.length} classes.`,
-    })
+  const handleGenerate = async () => {
+    if (!selectedSession) {
+      toast.error("Please select a session.")
+      return
+    }
+
+    const payload: GenerateFeeStructureCommand = {
+      sessionId: Number(selectedSession),
+      classes: selectedClasses.map((classId) => {
+        const classStudents = students.filter((student) => student.classId === classId)
+        const classTotal = classTotals[classId] || 0
+        const classComponents = componentAmounts[classId] || []
+
+        return {
+          classId,
+          studentIds: classStudents.map((student) => student.id),
+          components: classComponents.map((component) => ({
+            componentId: component.componentId,
+            amount: component.amount,
+          })),
+          installments: installments.map((installment, index, allInstallments) => {
+            const rawAmount = (classTotal * installment.percentage) / 100
+            const amount =
+              index === allInstallments.length - 1
+                ? classTotal -
+                  allInstallments
+                    .slice(0, -1)
+                    .reduce((sum, item) => sum + Math.round((classTotal * item.percentage) / 100), 0)
+                : Math.round(rawAmount)
+
+            return {
+              name: installment.name,
+              dueDate: new Date(installment.dueDate).toISOString(),
+              amount,
+            }
+          }),
+        }
+      }),
+    }
+
+    setIsSubmitting(true)
+    try {
+      await feeStructuresApi.generate(payload)
+      toast.success("Fee structure generated successfully", {
+        description: `Generated fees for ${affectedStudents.length} students across ${selectedClasses.length} classes.`,
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate fee structure.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
   
   return (
@@ -724,9 +772,9 @@ export default function FeeGenerationPage() {
             <ChevronRight className="h-4 w-4 ml-2" />
           </Button>
         ) : (
-          <Button onClick={handleGenerate}>
+          <Button onClick={handleGenerate} disabled={isSubmitting}>
             <Check className="h-4 w-4 mr-2" />
-            Generate Fee Structure
+            {isSubmitting ? "Generating..." : "Generate Fee Structure"}
           </Button>
         )}
       </div>

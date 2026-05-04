@@ -33,6 +33,7 @@ import type {
   CreateGroupPaymentCommand,
   Invoice,
   InvoiceDetail,
+  GenerateFeeStructureCommand,
 } from "./types"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
@@ -170,13 +171,101 @@ export const feeStructuresApi = {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
+  generate: (data: GenerateFeeStructureCommand) =>
+    fetchApi<void>("/FeeStructures/generate", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
   delete: (id: number) =>
     fetchApi<void>(`/FeeStructures/${id}`, { method: "DELETE" }),
 }
 
 // ============ Student Fees API ============
 export const studentFeesApi = {
-  getByStudentId: (studentId: number) => fetchApi<StudentFee>(`/StudentFees/${studentId}`),
+  getAll: async () => {
+    const data = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFees")
+    return data.map(normalizeStudentFee)
+  },
+  getByStudentId: async (studentId: number) => {
+    const endpoints = [
+      `/StudentFees/${studentId}`,
+      `/StudentFees/student/${studentId}`,
+      `/StudentFees/s${studentId}`,
+    ]
+    let lastError: unknown = null
+
+    for (const endpoint of endpoints) {
+      try {
+        const data = await fetchApi<Partial<StudentFee> & { status?: string }>(endpoint)
+        return normalizeStudentFee(data)
+      } catch (err) {
+        lastError = err
+      }
+    }
+
+    try {
+      const fees = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFees")
+      const match = fees.find((fee) => fee.studentId === studentId)
+      if (match) return normalizeStudentFee(match)
+    } catch (err) {
+      lastError = err
+    }
+
+    if (lastError instanceof Error) throw lastError
+    throw new Error("Failed to load student fee.")
+  },
+}
+
+function normalizeStudentFee(raw: Partial<StudentFee> & { status?: string }): StudentFee {
+  const totalAmount = Number(raw.totalAmount ?? 0)
+  const discountAmount = Number(raw.discountAmount ?? 0)
+  const fineAmount = Number(raw.fineAmount ?? 0)
+  const paidAmount = Number(raw.paidAmount ?? 0)
+  const netAmount = Number(raw.netAmount ?? totalAmount - discountAmount + fineAmount)
+  const remainingAmount =
+    typeof raw.remainingAmount === "number" ? raw.remainingAmount : undefined
+  const balance =
+    typeof raw.balance === "number"
+      ? raw.balance
+      : typeof remainingAmount === "number"
+      ? remainingAmount
+      : Math.max(0, netAmount - paidAmount)
+
+  const normalizedStatus = normalizeFeeStatus(raw.status, paidAmount, netAmount)
+
+  return {
+    id: raw.id ?? 0,
+    studentId: raw.studentId ?? 0,
+    feeStructureId: raw.feeStructureId ?? 0,
+    totalAmount,
+    discountAmount,
+    fineAmount,
+    netAmount,
+    paidAmount,
+    remainingAmount,
+    balance,
+    status: normalizedStatus,
+    student: raw.student,
+    feeStructure: raw.feeStructure,
+    installments: raw.installments ?? [],
+    payments: raw.payments ?? [],
+  }
+}
+
+function normalizeFeeStatus(
+  status: string | undefined,
+  paidAmount: number,
+  netAmount: number
+): StudentFee["status"] {
+  if (status) {
+    const normalized = status.toLowerCase()
+    if (normalized === "paid") return "paid"
+    if (normalized === "partial") return "partial"
+    if (normalized === "overpaid") return "overpaid"
+    if (normalized === "unpaid" || normalized === "pending") return "unpaid"
+  }
+
+  return calculatePaymentBreakdown(netAmount, 0, 0, paidAmount).status
 }
 
 // ============ Payments API ============

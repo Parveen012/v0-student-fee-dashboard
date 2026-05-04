@@ -6,12 +6,13 @@ import { StatCard } from "@/components/stat-card"
 import { MonthlyCollectionChart, FeeStatusChart } from "@/components/dashboard-charts"
 import { RecentTransactions, type RecentPayment } from "@/components/recent-transactions"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { paymentsApi, studentsApi } from "@/lib/api"
+import { paymentsApi, studentFeesApi, studentsApi } from "@/lib/api"
 import type { DashboardStats, MonthlyCollection, Payment, Student, StudentFee } from "@/lib/types"
 
 export default function DashboardPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
+  const [studentFees, setStudentFees] = useState<StudentFee[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,11 +21,20 @@ export default function DashboardPage() {
     setIsLoading(true)
     setError(null)
 
-    Promise.all([studentsApi.getAll(), paymentsApi.getAll()])
-      .then(([studentsData, paymentsData]) => {
+    Promise.all([
+      studentsApi.getAll(),
+      paymentsApi.getAll(),
+      studentFeesApi.getAll().catch(() => []),
+    ])
+      .then(([studentsData, paymentsData, feesData]) => {
         if (!active) return
         setStudents(studentsData)
         setPayments(paymentsData)
+        setStudentFees(
+          feesData.length > 0
+            ? feesData
+            : studentsData.flatMap((student) => student.studentFees || [])
+        )
       })
       .catch((err) => {
         if (!active) return
@@ -39,10 +49,6 @@ export default function DashboardPage() {
       active = false
     }
   }, [])
-
-  const studentFees = useMemo<StudentFee[]>(() => {
-    return students.flatMap((student) => student.studentFees || [])
-  }, [students])
 
   const stats = useMemo<DashboardStats>(() => {
     const collectedFromPayments = payments
@@ -94,7 +100,7 @@ export default function DashboardPage() {
       pendingStudents,
       overdueStudents,
     }
-  }, [payments, students.length, studentFees])
+  }, [payments, studentFees, students.length])
 
   const monthlyCollections = useMemo<MonthlyCollection[]>(() => {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
