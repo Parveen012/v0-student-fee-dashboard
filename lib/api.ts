@@ -28,6 +28,11 @@ import type {
   UpdateStudentFineCommand,
   Parent,
   CreateParentCommand,
+  StudentParent,
+  CreateStudentParentCommand,
+  CreateGroupPaymentCommand,
+  Invoice,
+  InvoiceDetail,
 } from "./types"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
@@ -124,6 +129,25 @@ export const parentsApi = {
     }),
 }
 
+// ============ Student Parents API ============
+export const studentParentsApi = {
+  getByStudentId: async (studentId: number) => {
+    try {
+      return await fetchApi<StudentParent[]>(`/StudentParents/${studentId}`)
+    } catch {
+      // Some backends expose student-parent lookup as /StudentParents/s{studentId}
+      return fetchApi<StudentParent[]>(`/StudentParents/s${studentId}`)
+    }
+  },
+  create: (data: CreateStudentParentCommand) =>
+    fetchApi<StudentParent>("/StudentParents", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/StudentParents/${id}`, { method: "DELETE" }),
+}
+
 // ============ Fee Components API ============
 export const feeComponentsApi = {
   getAll: () => fetchApi<FeeComponent[]>("/FeeComponents"),
@@ -150,6 +174,11 @@ export const feeStructuresApi = {
     fetchApi<void>(`/FeeStructures/${id}`, { method: "DELETE" }),
 }
 
+// ============ Student Fees API ============
+export const studentFeesApi = {
+  getByStudentId: (studentId: number) => fetchApi<StudentFee>(`/StudentFees/${studentId}`),
+}
+
 // ============ Payments API ============
 export const paymentsApi = {
   getAll: () => fetchApi<Payment[]>("/Payments"),
@@ -158,6 +187,25 @@ export const paymentsApi = {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
+}
+
+// ============ Group Payments API ============
+export const groupPaymentsApi = {
+  create: (data: CreateGroupPaymentCommand) =>
+    fetchApi<void>("/GroupPayments", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+}
+
+// ============ Invoices API ============
+export const invoicesApi = {
+  getAll: () => fetchApi<Invoice[]>("/Invoices"),
+}
+
+// ============ Invoice Details API ============
+export const invoiceDetailsApi = {
+  getAll: () => fetchApi<InvoiceDetail[]>("/InvoiceDetails"),
 }
 
 // ============ Discounts API ============

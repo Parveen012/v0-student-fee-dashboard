@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Plus, Percent, Users, Award, Clock } from "lucide-react"
+import { Plus, Percent, Users, Award, Clock, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +32,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Switch } from "@/components/ui/switch"
 import { discountsApi, studentDiscountsApi, studentsApi } from "@/lib/api"
 import type { Discount, Student, StudentDiscount } from "@/lib/types"
 import { toast } from "sonner"
@@ -43,14 +44,23 @@ const discountTypeConfig = {
   early_payment: { label: "Early Payment", icon: Clock, color: "bg-chart-4/10 text-chart-4" },
 }
 
+type DiscountCategory = keyof typeof discountTypeConfig
+
 export default function DiscountsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [students, setStudents] = useState<Student[]>([])
   const [discounts, setDiscounts] = useState<Discount[]>([])
   const [studentDiscounts, setStudentDiscounts] = useState<StudentDiscount[]>([])
   const [selectedStudentId, setSelectedStudentId] = useState("")
   const [selectedDiscountId, setSelectedDiscountId] = useState("")
   const [discountReason, setDiscountReason] = useState("")
+  const [newDiscount, setNewDiscount] = useState({
+    name: "",
+    amountOrPercentage: "",
+    isPercentage: false,
+    discountType: "manual",
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -99,7 +109,10 @@ export default function DiscountsPage() {
       const studentClass = sd.student?.class
         ? `${sd.student.class.name}-${sd.student.class.section}`
         : "N/A"
-      const type = (() => {
+      const type: DiscountCategory = (() => {
+        if (discount?.discountType && (discount.discountType in discountTypeConfig)) {
+          return discount.discountType as DiscountCategory
+        }
         const normalized = name.toLowerCase()
         if (normalized.includes("sibling")) return "sibling"
         if (normalized.includes("scholar")) return "scholarship"
@@ -112,6 +125,7 @@ export default function DiscountsPage() {
         type,
         name,
         amount,
+        percentage: discount?.isPercentage ? discount.amountOrPercentage : undefined,
         studentName,
         studentClass,
       }
@@ -148,6 +162,40 @@ export default function DiscountsPage() {
     }
   }
 
+  const handleCreateDiscount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const amount = Number(newDiscount.amountOrPercentage)
+    if (!newDiscount.name || !amount || amount <= 0) {
+      toast.error("Please enter a valid discount name and amount.")
+      return
+    }
+
+    try {
+      await discountsApi.create({
+        name: newDiscount.name,
+        amountOrPercentage: amount,
+        isPercentage: newDiscount.isPercentage,
+        discountType: newDiscount.discountType,
+      })
+      toast.success("Discount type created")
+      setIsCreateDialogOpen(false)
+      setNewDiscount({ name: "", amountOrPercentage: "", isPercentage: false, discountType: "manual" })
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create discount type.")
+    }
+  }
+
+  const handleDeleteDiscount = async (discount: Discount) => {
+    try {
+      await discountsApi.delete(discount.id)
+      toast.success("Discount type deleted")
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete discount type.")
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -157,13 +205,86 @@ export default function DiscountsPage() {
             Manage fee discounts and concessions
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 size-4" />
-              Add Discount
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Plus className="mr-2 size-4" />
+                Discount Type
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create Discount Type</DialogTitle>
+                <DialogDescription>Create a reusable discount definition.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateDiscount}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="discountName">Name</Label>
+                    <Input
+                      id="discountName"
+                      value={newDiscount.name}
+                      onChange={(e) => setNewDiscount((prev) => ({ ...prev, name: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="discountType">Type</Label>
+                    <Select
+                      value={newDiscount.discountType}
+                      onValueChange={(value) => setNewDiscount((prev) => ({ ...prev, discountType: value }))}
+                    >
+                      <SelectTrigger id="discountType">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(discountTypeConfig).map(([key, cfg]) => (
+                          <SelectItem key={key} value={key}>
+                            {cfg.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="discountAmount">Amount or Percentage</Label>
+                    <Input
+                      id="discountAmount"
+                      type="number"
+                      value={newDiscount.amountOrPercentage}
+                      onChange={(e) => setNewDiscount((prev) => ({ ...prev, amountOrPercentage: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="isPercentage">Percentage based</Label>
+                    <Switch
+                      id="isPercentage"
+                      checked={newDiscount.isPercentage}
+                      onCheckedChange={(value) => setNewDiscount((prev) => ({ ...prev, isPercentage: value }))}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Create</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 size-4" />
+                Apply Discount
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Apply Discount</DialogTitle>
@@ -237,7 +358,8 @@ export default function DiscountsPage() {
               </DialogFooter>
             </form>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       {error && (
@@ -337,6 +459,59 @@ export default function DiscountsPage() {
       </div>
 
       {/* Discounts Table */}
+      <Card className="border-border/50 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">Discount Types</CardTitle>
+          <CardDescription>Reusable discount definitions from the Discounts API</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Name</TableHead>
+                  <TableHead>Value</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Mode</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {discounts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                      No discount types found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  discounts.map((discount) => (
+                    <TableRow key={discount.id}>
+                      <TableCell className="font-medium">{discount.name}</TableCell>
+                      <TableCell>
+                        {discount.isPercentage
+                          ? `${discount.amountOrPercentage}%`
+                          : `₹${discount.amountOrPercentage.toLocaleString("en-IN")}`}
+                      </TableCell>
+                      <TableCell>
+                        {discount.discountType && discountTypeConfig[discount.discountType as keyof typeof discountTypeConfig]
+                          ? discountTypeConfig[discount.discountType as keyof typeof discountTypeConfig].label
+                          : discount.discountType || "N/A"}
+                      </TableCell>
+                      <TableCell>{discount.isPercentage ? "Percentage" : "Fixed"}</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteDiscount(discount)}>
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-border/50 shadow-sm">
         <CardHeader>
           <CardTitle className="text-base font-semibold">Applied Discounts</CardTitle>

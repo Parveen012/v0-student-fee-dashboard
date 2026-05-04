@@ -12,6 +12,14 @@ import {
   BarChart3,
   Settings,
   GraduationCap,
+  School,
+  CalendarDays,
+  UserRound,
+  ClipboardList,
+  CircleDollarSign,
+  Wand2,
+  Link2,
+  FileText,
 } from "lucide-react"
 import {
   Sidebar,
@@ -29,13 +37,21 @@ import {
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Students", url: "/students", icon: Users },
+  { title: "Parents", url: "/parents", icon: UserRound },
+  { title: "Student Parents", url: "/student-parents", icon: Link2 },
+  { title: "Classes", url: "/classes", icon: School },
   { title: "Fee Structure", url: "/fee-structure", icon: Receipt },
   { title: "Payments", url: "/payments", icon: CreditCard },
 ]
 
 const managementMenuItems = [
+  { title: "Sessions", url: "/sessions", icon: CalendarDays },
+  { title: "Fee Components", url: "/fee-components", icon: ClipboardList },
+  { title: "Fee Generation", url: "/fee-generation", icon: Wand2 },
   { title: "Installments", url: "/installments", icon: CalendarClock },
   { title: "Discounts", url: "/discounts", icon: Percent },
+  { title: "Fines", url: "/fines", icon: CircleDollarSign },
+  { title: "Invoices", url: "/invoices", icon: FileText },
   { title: "Reports", url: "/reports", icon: BarChart3 },
 ]
 

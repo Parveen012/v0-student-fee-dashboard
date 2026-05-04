@@ -66,7 +66,10 @@ import {
   discountsApi,
   feeComponentsApi,
   finesApi,
+  parentsApi,
   paymentsApi,
+  studentFeesApi,
+  studentParentsApi,
   studentDiscountsApi,
   studentFinesApi,
   studentsApi,
@@ -75,11 +78,13 @@ import type {
   Discount,
   FeeComponent,
   Fine,
+  Parent,
   Payment,
   Student,
   StudentDiscount,
   StudentFee,
   StudentFine,
+  StudentParent,
 } from "@/lib/types"
 
 // Status badge component
@@ -147,6 +152,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [student, setStudent] = useState<Student | null>(null)
   const [studentFee, setStudentFee] = useState<StudentFee | null>(null)
   const [studentPayments, setStudentPayments] = useState<Payment[]>([])
+  const [studentParentsList, setStudentParentsList] = useState<StudentParent[]>([])
   const [studentDiscountsList, setStudentDiscountsList] = useState<StudentDiscount[]>([])
   const [studentFinesList, setStudentFinesList] = useState<StudentFine[]>([])
   const [discounts, setDiscounts] = useState<Discount[]>([])
@@ -179,6 +185,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     try {
       const [
         studentData,
+        studentParentsData,
+        parentsData,
         paymentsData,
         discountsData,
         finesData,
@@ -187,6 +195,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         feeComponentsData,
       ] = await Promise.all([
         studentsApi.getById(studentId),
+        studentParentsApi.getByStudentId(studentId),
+        parentsApi.getAll(),
         paymentsApi.getAll(),
         discountsApi.getAll(),
         finesApi.getAll(),
@@ -195,12 +205,26 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         feeComponentsApi.getAll(),
       ])
 
+      let studentFeeData: StudentFee | null = null
+      try {
+        studentFeeData = await studentFeesApi.getByStudentId(studentId)
+      } catch {
+        // Keep fallback to embedded studentFees when dedicated endpoint is unavailable.
+      }
+
       const discountMap = new Map(discountsData.map((discount) => [discount.id, discount]))
       const fineMap = new Map(finesData.map((fine) => [fine.id, fine]))
+      const parentMap = new Map(parentsData.map((parent) => [parent.id, parent]))
 
       setStudent(studentData)
-      setStudentFee(studentData.studentFees?.[0] || null)
+      setStudentFee(studentFeeData || studentData.studentFees?.[0] || null)
       setStudentPayments(paymentsData.filter((payment) => payment.studentId === studentId))
+      setStudentParentsList(
+        studentParentsData.map((relation) => ({
+          ...relation,
+          parent: relation.parent || parentMap.get(relation.parentId),
+        }))
+      )
       setStudentDiscountsList(
         studentDiscountsData
           .filter((sd) => sd.studentId === studentId)
@@ -253,6 +277,58 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       balance: studentFee.balance,
     }
   }, [feeComponents, studentFee])
+
+  const feePayerParent = useMemo(() => {
+    const isFeePayer = (relation: StudentParent) =>
+      relation.isFeePayer === true || relation.IsFeePayer === true
+
+    const relation =
+      studentParentsList.find(isFeePayer) ||
+      studentParentsList[0]
+
+    if (!relation) return null
+
+    return {
+      relation: relation.relation || relation.relationship || "Guardian",
+      parent: relation.parent,
+    }
+  }, [studentParentsList])
+
+  const parentDetails: { name: string; phone: string; email: string; relation?: string } = useMemo(() => {
+    if (feePayerParent?.parent) {
+      return {
+        name: feePayerParent.parent.name,
+        phone: feePayerParent.parent.phone,
+        email: feePayerParent.parent.email,
+        relation: feePayerParent.relation,
+      }
+    }
+
+    if (student?.parent) {
+      return {
+        name: student.parent.name,
+        phone: student.parent.phone,
+        email: student.parent.email,
+      }
+    }
+
+    return {
+      name: "N/A",
+      phone: "N/A",
+      email: "N/A",
+    }
+  }, [feePayerParent, student])
+
+  const linkedParents = useMemo(() => {
+    return studentParentsList.map((relation) => ({
+      id: relation.id,
+      name: relation.parent?.name || `Parent ${relation.parentId}`,
+      phone: relation.parent?.phone || "N/A",
+      email: relation.parent?.email || "N/A",
+      relation: relation.relation || relation.relationship || "Guardian",
+      isFeePayer: relation.isFeePayer === true || relation.IsFeePayer === true,
+    }))
+  }, [studentParentsList])
   
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading student details...</div>
@@ -421,19 +497,22 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <User className="h-3 w-3" /> Parent
                 </p>
-                <p className="font-medium">{student.parent?.name || "N/A"}</p>
+                <p className="font-medium">{parentDetails.name}</p>
+                {parentDetails.relation && (
+                  <p className="text-xs text-muted-foreground">{parentDetails.relation} • Fee Payer</p>
+                )}
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Phone className="h-3 w-3" /> Phone
                 </p>
-                <p className="font-medium">{student.parent?.phone || "N/A"}</p>
+                <p className="font-medium">{parentDetails.phone}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Mail className="h-3 w-3" /> Email
                 </p>
-                <p className="font-medium text-sm">{student.parent?.email || "N/A"}</p>
+                <p className="font-medium text-sm">{parentDetails.email}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -443,6 +522,51 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">All Linked Parents</CardTitle>
+          <CardDescription>
+            Parent relations fetched from StudentParents for this student.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {linkedParents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No linked parents found.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Parent</TableHead>
+                    <TableHead>Relation</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Fee Payer</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {linkedParents.map((parent) => (
+                    <TableRow key={parent.id}>
+                      <TableCell className="font-medium">{parent.name}</TableCell>
+                      <TableCell>{parent.relation}</TableCell>
+                      <TableCell>{parent.phone}</TableCell>
+                      <TableCell>{parent.email}</TableCell>
+                      <TableCell>
+                        {parent.isFeePayer ? (
+                          <Badge className="bg-success/10 text-success hover:bg-success/10">Yes</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">No</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
       

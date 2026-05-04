@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 import type { FeeStatus } from "@/lib/types"
 
 interface StatusBadgeProps {
-  status: FeeStatus | "completed" | "pending" | "failed"
+  status: FeeStatus | "completed" | "pending" | "failed" | "refunded"
   className?: string
 }
 
@@ -38,6 +38,10 @@ const statusConfig = {
   failed: {
     label: "Failed",
     className: "bg-destructive/10 text-destructive border-destructive/20",
+  },
+  refunded: {
+    label: "Refunded",
+    className: "bg-muted text-muted-foreground border-muted",
   },
 }
 

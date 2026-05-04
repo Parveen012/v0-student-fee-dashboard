@@ -122,6 +122,9 @@ export default function FeeGenerationPage() {
     { id: 3, name: "Q3 (Oct-Dec)", dueDate: "2024-10-15", percentage: 25 },
     { id: 4, name: "Q4 (Jan-Mar)", dueDate: "2025-01-15", percentage: 25 },
   ])
+  const [installmentSchedule, setInstallmentSchedule] = useState<
+    "annual" | "semi" | "quarterly" | "monthly"
+  >("quarterly")
   
   const steps = ["Session", "Classes", "Components", "Installments", "Review"]
   
@@ -217,6 +220,61 @@ export default function FeeGenerationPage() {
       percentage: 0,
     }])
   }
+
+  // Generate installments for common schedules
+  const generateInstallmentsForSchedule = (schedule: string) => {
+    const baseYear = 2024
+    const baseMonth = 3 // April (0-indexed)
+    const makeDate = (y: number, m: number, d = 14) => {
+      const mm = m + 1
+      const mmStr = String(mm).padStart(2, "0")
+      const ddStr = String(d).padStart(2, "0")
+      return `${y}-${mmStr}-${ddStr}`
+    }
+
+    if (schedule === "annual") {
+      return [{ id: 1, name: "Full Year", dueDate: makeDate(baseYear, baseMonth, 14), percentage: 100 }]
+    }
+
+    if (schedule === "semi") {
+      return [
+        { id: 1, name: "First Half", dueDate: makeDate(baseYear, baseMonth, 14), percentage: 50 },
+        { id: 2, name: "Second Half", dueDate: makeDate(baseYear, baseMonth + 6, 14), percentage: 50 },
+      ]
+    }
+
+    if (schedule === "quarterly") {
+      return [
+        { id: 1, name: "Q1 (Apr-Jun)", dueDate: makeDate(baseYear, baseMonth, 15), percentage: 25 },
+        { id: 2, name: "Q2 (Jul-Sep)", dueDate: makeDate(baseYear, baseMonth + 3, 15), percentage: 25 },
+        { id: 3, name: "Q3 (Oct-Dec)", dueDate: makeDate(baseYear, baseMonth + 6, 15), percentage: 25 },
+        { id: 4, name: "Q4 (Jan-Mar)", dueDate: makeDate(baseYear + 1, 0, 15), percentage: 25 },
+      ]
+    }
+
+    // monthly
+    if (schedule === "monthly") {
+      const items: Installment[] = []
+      let remaining = 100
+      for (let i = 0; i < 12; i++) {
+        const pct = i === 11 ? remaining : Math.floor(100 / 12)
+        remaining -= pct
+        const month = baseMonth + i
+        const year = baseYear + Math.floor(month / 12)
+        const m = month % 12
+        items.push({ id: i + 1, name: `M${i + 1}`, dueDate: makeDate(year, m, 14), percentage: pct })
+      }
+      return items
+    }
+
+    return []
+  }
+
+  useEffect(() => {
+    // apply default schedule on mount
+    setInstallments(generateInstallmentsForSchedule(installmentSchedule))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   
   // Remove installment
   const removeInstallment = (id: number) => {
@@ -446,6 +504,25 @@ export default function FeeGenerationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="mb-4">
+              <Label>Installment Schedule</Label>
+              <Select value={installmentSchedule} onValueChange={(v) => {
+                const value = v as "annual" | "semi" | "quarterly" | "monthly"
+                setInstallmentSchedule(value)
+                setInstallments(generateInstallmentsForSchedule(value))
+              }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="annual">Annual (1 Payment)</SelectItem>
+                  <SelectItem value="semi">Semi-Annual (2 Payments)</SelectItem>
+                  <SelectItem value="quarterly">Quarterly (4 Payments)</SelectItem>
+                  <SelectItem value="monthly">Monthly (12 Payments)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {installments.reduce((sum, i) => sum + i.percentage, 0) !== 100 && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
