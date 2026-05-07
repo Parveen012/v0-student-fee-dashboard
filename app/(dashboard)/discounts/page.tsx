@@ -99,9 +99,10 @@ export default function DiscountsPage() {
   const allDiscounts = useMemo(() => {
     return studentDiscounts.map((sd) => {
       const discount = sd.discount
+      const baseAmount = sd.student?.studentFees?.[0]?.totalAmount || sd.student?.studentFees?.[0]?.netAmount || 0
       const amount =
         sd.appliedAmount ??
-        (discount?.isPercentage ? 0 : discount?.amountOrPercentage ?? 0)
+        (discount?.isPercentage ? (baseAmount * discount.amountOrPercentage) / 100 : discount?.amountOrPercentage ?? 0)
       const name = discount?.name || "Discount"
       const studentName = sd.student
         ? `${sd.student.firstName} ${sd.student.lastName}`

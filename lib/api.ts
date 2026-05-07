@@ -7,6 +7,8 @@ import type {
   Session,
   FeeStructure,
   FeeComponent,
+  FeeComponentDto,
+  FeeStructuresGenerateResponse,
   Payment,
   Discount,
   Fine,
@@ -45,9 +47,54 @@ const DEFAULT_TENANT_ID =
     ? Number(process.env.NEXT_PUBLIC_TENANT_ID)
     : 1
 
+type GenerateFeeStructureClass = GenerateFeeStructureCommand["classes"][number]
+
 function withTenantId<T extends { tenantId?: number }>(data: T): T & { tenantId: number } {
   if (typeof data.tenantId === "number") return data as T & { tenantId: number }
   return { ...data, tenantId: DEFAULT_TENANT_ID }
+}
+
+function buildDefaultInstallments(
+  installmentCount: number,
+  components: GenerateFeeStructureClass["components"]
+): NonNullable<GenerateFeeStructureClass["installments"]> {
+  const totalAmount = components.reduce((sum, component) => sum + Number(component.amount || 0), 0)
+  const baseAmount = Math.floor(totalAmount / installmentCount)
+  const now = new Date()
+
+  return Array.from({ length: installmentCount }, (_, index) => {
+    const installmentNo = index + 1
+    const dueDate = new Date(now)
+    dueDate.setMonth(dueDate.getMonth() + index)
+
+    return {
+      name: installmentCount === 1 ? "Full Payment" : `Installment ${installmentNo}`,
+      dueDate: dueDate.toISOString(),
+      amount:
+        installmentNo === installmentCount
+          ? totalAmount - baseAmount * (installmentCount - 1)
+          : baseAmount,
+    }
+  })
+}
+
+function normalizeGenerateFeeStructureCommand(
+  data: GenerateFeeStructureCommand
+): GenerateFeeStructureCommand {
+  const installmentCount = Number(data.installmentCount || 0)
+
+  return {
+    ...data,
+    classes: data.classes.map((classItem) => ({
+      ...classItem,
+      installments:
+        classItem.installments?.length
+          ? classItem.installments
+          : installmentCount > 0
+            ? buildDefaultInstallments(installmentCount, classItem.components)
+            : [],
+    })),
+  }
 }
 
 // Generic fetch wrapper with error handling
@@ -66,8 +113,19 @@ async function fetchApi<T>(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(error || `API Error: ${response.status}`)
+    const errorText = await response.text()
+    let message = errorText || `API Error: ${response.status}`
+
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText)
+        message = parsed.message || parsed.title || parsed.error || message
+      } catch {
+        // Keep raw text when the server does not return JSON.
+      }
+    }
+
+    throw new Error(message)
   }
 
   // Handle empty responses
@@ -151,11 +209,16 @@ export const studentParentsApi = {
 
 // ============ Fee Components API ============
 export const feeComponentsApi = {
-  getAll: () => fetchApi<FeeComponent[]>("/FeeComponents"),
-  getById: (id: number) => fetchApi<FeeComponent>(`/FeeComponents/${id}`),
+  getAll: () => fetchApi<FeeComponentDto[]>("/FeeComponents"),
+  getById: (id: number) => fetchApi<FeeComponentDto>(`/FeeComponents/${id}`),
   create: (data: CreateFeeComponentCommand) =>
-    fetchApi<FeeComponent>("/FeeComponents", {
+    fetchApi<FeeComponentDto>("/FeeComponents", {
       method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: CreateFeeComponentCommand) =>
+    fetchApi<FeeComponentDto>(`/FeeComponents/${id}`, {
+      method: "PUT",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
@@ -172,9 +235,9 @@ export const feeStructuresApi = {
       body: JSON.stringify(withTenantId(data)),
     }),
   generate: (data: GenerateFeeStructureCommand) =>
-    fetchApi<void>("/FeeStructures/generate", {
+    fetchApi<FeeStructuresGenerateResponse>("/FeeStructures/generate", {
       method: "POST",
-      body: JSON.stringify(withTenantId(data)),
+      body: JSON.stringify(withTenantId(normalizeGenerateFeeStructureCommand(data))),
     }),
   delete: (id: number) =>
     fetchApi<void>(`/FeeStructures/${id}`, { method: "DELETE" }),
@@ -187,28 +250,23 @@ export const studentFeesApi = {
     return data.map(normalizeStudentFee)
   },
   getByStudentId: async (studentId: number) => {
-    const endpoints = [
-      `/StudentFees/${studentId}`,
-      `/StudentFees/student/${studentId}`,
-      `/StudentFees/s${studentId}`,
-    ]
     let lastError: unknown = null
 
-    for (const endpoint of endpoints) {
-      try {
-        const data = await fetchApi<Partial<StudentFee> & { status?: string } | Array<Partial<StudentFee> & { status?: string }>>(endpoint)
-        // Handle both single object and array responses
-        const fee = Array.isArray(data) ? data[0] : data
-        if (fee) return normalizeStudentFee(fee)
-      } catch (err) {
-        lastError = err
-      }
+    try {
+      const data = await fetchApi<
+        Partial<StudentFee> & { status?: string } | Array<Partial<StudentFee> & { status?: string }>
+      >(`/StudentFees/${studentId}`)
+      // Handle both single object and array responses
+      const fee = Array.isArray(data) ? data[0] : data
+      if (fee) return await enrichStudentFeeWithStudentFallback(studentId, normalizeStudentFee(fee))
+    } catch (err) {
+      lastError = err
     }
 
     try {
       const fees = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFees")
       const match = fees.find((fee) => fee.studentId === studentId)
-      if (match) return normalizeStudentFee(match)
+      if (match) return await enrichStudentFeeWithStudentFallback(studentId, normalizeStudentFee(match))
     } catch (err) {
       lastError = err
     }
@@ -216,6 +274,32 @@ export const studentFeesApi = {
     if (lastError instanceof Error) throw lastError
     throw new Error("Failed to load student fee.")
   },
+}
+
+async function enrichStudentFeeWithStudentFallback(
+  studentId: number,
+  fee: StudentFee
+): Promise<StudentFee> {
+  if (fee.installments?.length) return fee
+
+  try {
+    const student = await studentsApi.getById(studentId)
+    const fallbackFee =
+      student.studentFees?.find((item) => item.id === fee.id) ||
+      student.studentFees?.find((item) => item.studentId === studentId) ||
+      student.studentFees?.[0]
+
+    if (fallbackFee?.installments?.length) {
+      return {
+        ...fee,
+        installments: fallbackFee.installments,
+      }
+    }
+  } catch {
+    // Keep the direct fee payload when the student lookup is unavailable.
+  }
+
+  return fee
 }
 
 function normalizeStudentFee(raw: Partial<StudentFee> & { status?: string }): StudentFee {

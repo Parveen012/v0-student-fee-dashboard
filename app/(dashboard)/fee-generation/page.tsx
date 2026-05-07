@@ -1,369 +1,241 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { 
-  CalendarDays, 
-  GraduationCap, 
-  IndianRupee, 
-  Check,
-  ChevronRight,
-  ChevronLeft,
-  Plus,
-  Trash2,
-  AlertCircle,
-  Users,
-  FileText,
-  Settings,
-} from "lucide-react"
+import { AlertCircle, Check, ChevronLeft, ChevronRight, ClipboardList, GraduationCap, IndianRupee, Layers3 } from "lucide-react"
+import { toast } from "sonner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
-import { toast } from "sonner"
-import { classesApi, feeComponentsApi, feeStructuresApi, sessionsApi, studentsApi } from "@/lib/api"
-import type { Class, FeeComponent, GenerateFeeStructureCommand, Session, Student } from "@/lib/types"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { feeComponentsApi, feeStructuresApi, sessionsApi, studentsApi } from "@/lib/api"
+import type {
+  FeeComponent,
+  FeeGenerationResponse,
+  FeeGenerationValidationResponse,
+  FeeStructuresGenerateResponse,
+  GenerateFeeStructureCommand,
+  Student,
+} from "@/lib/types"
 
-// Step indicator component
-function StepIndicator({ currentStep, steps }: { currentStep: number; steps: string[] }) {
+const steps = ["Student", "Components", "Installments", "Preview"]
+const installmentOptions = [1, 2, 4, 12]
+
+function formatCurrency(amount?: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount || 0)
+}
+
+function studentLabel(student?: Student) {
+  if (!student) return "Select student"
+  const classLabel = student.className || (student.class ? `${student.class.name}-${student.class.section}` : "No class")
+  return `${student.firstName} ${student.lastName} - ${classLabel}`
+}
+
+function StepIndicator({ currentStep }: { currentStep: number }) {
   return (
-    <div className="flex items-center justify-center mb-8">
+    <div className="flex flex-wrap items-center justify-center gap-3">
       {steps.map((step, index) => (
-        <div key={step} className="flex items-center">
-          <div className="flex flex-col items-center">
-            <div 
-              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors ${
-                index < currentStep 
-                  ? "bg-primary border-primary text-primary-foreground"
-                  : index === currentStep
+        <div key={step} className="flex items-center gap-3">
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors ${
+              index < currentStep
+                ? "border-primary bg-primary text-primary-foreground"
+                : index === currentStep
                   ? "border-primary text-primary"
                   : "border-muted-foreground/30 text-muted-foreground"
-              }`}
-            >
-              {index < currentStep ? (
-                <Check className="h-5 w-5" />
-              ) : (
-                <span className="font-semibold">{index + 1}</span>
-              )}
-            </div>
-            <span className={`text-xs mt-1 ${index === currentStep ? "font-medium" : "text-muted-foreground"}`}>
-              {step}
-            </span>
+            }`}
+          >
+            {index < currentStep ? <Check className="h-4 w-4" /> : index + 1}
           </div>
-          {index < steps.length - 1 && (
-            <div 
-              className={`w-16 h-0.5 mx-2 ${
-                index < currentStep ? "bg-primary" : "bg-muted-foreground/30"
-              }`}
-            />
-          )}
+          <span className={`text-sm ${index === currentStep ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+            {step}
+          </span>
+          {index < steps.length - 1 && <div className="hidden h-px w-10 bg-muted-foreground/30 md:block" />}
         </div>
       ))}
     </div>
   )
 }
 
-// Format currency
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
-
-interface Installment {
-  id: number
-  name: string
-  dueDate: string
-  percentage: number
-}
-
-interface ComponentAmount {
-  componentId: number
-  amount: number
-}
-
 export default function FeeGenerationPage() {
   const [currentStep, setCurrentStep] = useState(0)
-  const [selectedSession, setSelectedSession] = useState<string>("")
-  const [selectedClasses, setSelectedClasses] = useState<number[]>([])
-  const [componentAmounts, setComponentAmounts] = useState<Record<number, ComponentAmount[]>>({})
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [classes, setClasses] = useState<Class[]>([])
-  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
   const [students, setStudents] = useState<Student[]>([])
+  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
+  const [sessionId, setSessionId] = useState<string>(process.env.NEXT_PUBLIC_SESSION_ID || "")
+  const [selectedStudentId, setSelectedStudentId] = useState("")
+  const [selectedComponentIds, setSelectedComponentIds] = useState<number[]>([])
+  const [installmentCount, setInstallmentCount] = useState("4")
+  const [generationResult, setGenerationResult] = useState<FeeStructuresGenerateResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [installments, setInstallments] = useState<Installment[]>([
-    { id: 1, name: "Q1 (Apr-Jun)", dueDate: "2024-04-15", percentage: 25 },
-    { id: 2, name: "Q2 (Jul-Sep)", dueDate: "2024-07-15", percentage: 25 },
-    { id: 3, name: "Q3 (Oct-Dec)", dueDate: "2024-10-15", percentage: 25 },
-    { id: 4, name: "Q4 (Jan-Mar)", dueDate: "2025-01-15", percentage: 25 },
-  ])
-  const [installmentSchedule, setInstallmentSchedule] = useState<
-    "annual" | "semi" | "quarterly" | "monthly"
-  >("quarterly")
-  
-  const steps = ["Session", "Classes", "Components", "Installments", "Review"]
-  
-  // Get active session
-  const activeSession = sessions.find(s => s.id.toString() === selectedSession)
+
+  const isFeeGenerationResponse = (result: FeeStructuresGenerateResponse): result is FeeGenerationResponse => {
+    return Array.isArray((result as FeeGenerationResponse).installments)
+  }
+
+  const isValidationResponse = (result: FeeStructuresGenerateResponse): result is FeeGenerationValidationResponse => {
+    return typeof (result as FeeGenerationValidationResponse).isSuccess === "boolean" && Array.isArray((result as FeeGenerationValidationResponse).failedRecords)
+  }
+
+  const selectedStudent = useMemo(
+    () => students.find((student) => student.id === Number(selectedStudentId)),
+    [selectedStudentId, students]
+  )
+
+  const selectedComponents = useMemo(
+    () => feeComponents.filter((component) => selectedComponentIds.includes(component.id)),
+    [feeComponents, selectedComponentIds]
+  )
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const [sessionsData, classesData, feeComponentsData, studentsData] = await Promise.all([
-        sessionsApi.getAll(),
-        classesApi.getAll(),
-        feeComponentsApi.getAll(),
+      const [studentsData, componentsData, sessionsData] = await Promise.all([
         studentsApi.getAll(),
+        feeComponentsApi.getAll(),
+        sessionsApi.getAll(),
       ])
-      setSessions(sessionsData)
-      setClasses(classesData)
-      setFeeComponents(feeComponentsData)
       setStudents(studentsData)
-      if (!selectedSession) {
-        const active = sessionsData.find((session) => session.isActive) || sessionsData[0]
-        if (active) setSelectedSession(active.id.toString())
+      setFeeComponents(componentsData)
+      if (!sessionId && sessionsData?.[0]) {
+        setSessionId(String(sessionsData[0].id))
+      }
+      if (!selectedStudentId && studentsData[0]) {
+        setSelectedStudentId(studentsData[0].id.toString())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load fee generation data.")
     } finally {
       setIsLoading(false)
     }
-  }, [selectedSession])
+  }, [selectedStudentId, sessionId])
 
   useEffect(() => {
     loadData()
   }, [loadData])
-  
-  // Calculate totals
-  const classTotals = useMemo(() => {
-    const totals: Record<number, number> = {}
-    selectedClasses.forEach(classId => {
-      const amounts = componentAmounts[classId] || []
-      totals[classId] = amounts.reduce((sum, ca) => sum + ca.amount, 0)
-    })
-    return totals
-  }, [selectedClasses, componentAmounts])
-  
-  // Calculate affected students
-  const affectedStudents = useMemo(() => {
-    return students.filter(s => selectedClasses.includes(s.classId || 0))
-  }, [selectedClasses])
-  
-  // Initialize component amounts for a class
-  const initializeClassComponents = (classId: number) => {
-    if (!componentAmounts[classId]) {
-      const defaultAmounts: ComponentAmount[] = feeComponents.map(fc => ({
-        componentId: fc.id,
-        amount: fc.type === "tuition" ? 45000 : 
-                fc.type === "transport" ? 12000 : 
-                fc.type === "lab" ? 5000 :
-                fc.type === "library" ? 3000 :
-                fc.type === "sports" ? 4000 : 2000
-      }))
-      setComponentAmounts(prev => ({ ...prev, [classId]: defaultAmounts }))
-    }
-  }
-  
-  // Toggle class selection
-  const toggleClass = (classId: number) => {
-    if (selectedClasses.includes(classId)) {
-      setSelectedClasses(prev => prev.filter(id => id !== classId))
-    } else {
-      setSelectedClasses(prev => [...prev, classId])
-      initializeClassComponents(classId)
-    }
-  }
-  
-  // Update component amount
-  const updateComponentAmount = (classId: number, componentId: number, amount: number) => {
-    setComponentAmounts(prev => ({
-      ...prev,
-      [classId]: (prev[classId] || []).map(ca => 
-        ca.componentId === componentId ? { ...ca, amount } : ca
-      )
-    }))
-  }
-  
-  // Add installment
-  const addInstallment = () => {
-    const newId = Math.max(...installments.map(i => i.id)) + 1
-    setInstallments(prev => [...prev, {
-      id: newId,
-      name: `Installment ${newId}`,
-      dueDate: "",
-      percentage: 0,
-    }])
-  }
-
-  // Generate installments for common schedules
-  const generateInstallmentsForSchedule = (schedule: string) => {
-    const baseYear = 2024
-    const baseMonth = 3 // April (0-indexed)
-    const makeDate = (y: number, m: number, d = 14) => {
-      const mm = m + 1
-      const mmStr = String(mm).padStart(2, "0")
-      const ddStr = String(d).padStart(2, "0")
-      return `${y}-${mmStr}-${ddStr}`
-    }
-
-    if (schedule === "annual") {
-      return [{ id: 1, name: "Full Year", dueDate: makeDate(baseYear, baseMonth, 14), percentage: 100 }]
-    }
-
-    if (schedule === "semi") {
-      return [
-        { id: 1, name: "First Half", dueDate: makeDate(baseYear, baseMonth, 14), percentage: 50 },
-        { id: 2, name: "Second Half", dueDate: makeDate(baseYear, baseMonth + 6, 14), percentage: 50 },
-      ]
-    }
-
-    if (schedule === "quarterly") {
-      return [
-        { id: 1, name: "Q1 (Apr-Jun)", dueDate: makeDate(baseYear, baseMonth, 15), percentage: 25 },
-        { id: 2, name: "Q2 (Jul-Sep)", dueDate: makeDate(baseYear, baseMonth + 3, 15), percentage: 25 },
-        { id: 3, name: "Q3 (Oct-Dec)", dueDate: makeDate(baseYear, baseMonth + 6, 15), percentage: 25 },
-        { id: 4, name: "Q4 (Jan-Mar)", dueDate: makeDate(baseYear + 1, 0, 15), percentage: 25 },
-      ]
-    }
-
-    // monthly
-    if (schedule === "monthly") {
-      const items: Installment[] = []
-      let remaining = 100
-      for (let i = 0; i < 12; i++) {
-        const pct = i === 11 ? remaining : Math.floor(100 / 12)
-        remaining -= pct
-        const month = baseMonth + i
-        const year = baseYear + Math.floor(month / 12)
-        const m = month % 12
-        items.push({ id: i + 1, name: `M${i + 1}`, dueDate: makeDate(year, m, 14), percentage: pct })
-      }
-      return items
-    }
-
-    return []
-  }
 
   useEffect(() => {
-    // apply default schedule on mount
-    setInstallments(generateInstallmentsForSchedule(installmentSchedule))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  
-  // Remove installment
-  const removeInstallment = (id: number) => {
-    if (installments.length <= 1) return
-    setInstallments(prev => prev.filter(i => i.id !== id))
-  }
-  
-  // Update installment
-  const updateInstallment = (id: number, field: keyof Installment, value: string | number) => {
-    setInstallments(prev => prev.map(i => 
-      i.id === id ? { ...i, [field]: value } : i
-    ))
-  }
-  
-  // Validate current step
+    setGenerationResult(null)
+  }, [selectedStudentId, installmentCount, sessionId])
+
   const canProceed = () => {
-    switch (currentStep) {
-      case 0: return !!selectedSession
-      case 1: return selectedClasses.length > 0
-      case 2: return Object.values(classTotals).every(t => t > 0)
-      case 3: {
-        const totalPercentage = installments.reduce((sum, i) => sum + i.percentage, 0)
-        return totalPercentage === 100 && installments.every(i => i.dueDate && i.name)
-      }
-      default: return true
-    }
+    if (currentStep === 0) return !!selectedStudentId
+    if (currentStep === 1) return selectedComponentIds.length > 0
+    if (currentStep === 2) return !!installmentCount
+    return true
   }
-  
-  // Handle generation
+
+  const toggleComponent = (componentId: number) => {
+    setSelectedComponentIds((prev) => {
+      const next = prev.includes(componentId)
+        ? prev.filter((id) => id !== componentId)
+        : [...prev, componentId]
+      return next
+    })
+    setGenerationResult(null)
+  }
+
   const handleGenerate = async () => {
-    if (!selectedSession) {
-      toast.error("Please select a session.")
+    if (!selectedStudent) {
+      toast.error("Please select a student.")
       return
     }
 
+    const parsedSessionId = Number(sessionId)
+    if (!parsedSessionId || parsedSessionId <= 0) {
+      toast.error("SessionId must be greater than 0.")
+      return
+    }
+
+    const parsedClassId = selectedStudent.classId ?? selectedStudent.class?.id
+    if (!parsedClassId || parsedClassId <= 0) {
+      toast.error("Selected student must have a valid class.")
+      return
+    }
+
+    if (selectedComponentIds.length === 0) {
+      toast.error("Please select at least one fee component.")
+      return
+    }
+
+    const parsedInstallmentCount = Number(installmentCount)
+    if (!parsedInstallmentCount || parsedInstallmentCount <= 0) {
+      toast.error("Please select a valid installment count.")
+      return
+    }
+
+    const selectedComponentPayload = feeComponents
+      .filter((component) => selectedComponentIds.includes(component.id))
+      .map((component) => ({ componentId: component.id, amount: component.amount }))
+
+    const totalSelectedAmount = selectedComponentPayload.reduce((sum, component) => sum + (component.amount || 0), 0)
+    if (totalSelectedAmount <= 0) {
+      toast.error("Selected fee components must have a total amount greater than 0.")
+      return
+    }
+
+    const now = new Date()
+    const installmentBaseAmount = parsedInstallmentCount > 0 ? Math.floor(totalSelectedAmount / parsedInstallmentCount) : 0
+    const installmentsPayload = Array.from({ length: parsedInstallmentCount }, (_, index) => {
+      const installmentNo = index + 1
+      const dueDate = new Date(now)
+      dueDate.setMonth(dueDate.getMonth() + index)
+      const amount =
+        installmentNo === parsedInstallmentCount
+          ? totalSelectedAmount - installmentBaseAmount * (parsedInstallmentCount - 1)
+          : installmentBaseAmount
+
+      return {
+        name: parsedInstallmentCount === 1 ? "Full Payment" : `Installment ${installmentNo}`,
+        dueDate: dueDate.toISOString(),
+        amount,
+      }
+    })
+
     const payload: GenerateFeeStructureCommand = {
-      sessionId: Number(selectedSession),
-      classes: selectedClasses.map((classId) => {
-        const classStudents = students.filter((student) => student.classId === classId)
-        const classTotal = classTotals[classId] || 0
-        const classComponents = componentAmounts[classId] || []
-
-        return {
-          classId,
-          studentIds: classStudents.map((student) => student.id),
-          components: classComponents.map((component) => ({
-            componentId: component.componentId,
-            amount: component.amount,
-          })),
-          installments: installments.map((installment, index, allInstallments) => {
-            const rawAmount = (classTotal * installment.percentage) / 100
-            const amount =
-              index === allInstallments.length - 1
-                ? classTotal -
-                  allInstallments
-                    .slice(0, -1)
-                    .reduce((sum, item) => sum + Math.round((classTotal * item.percentage) / 100), 0)
-                : Math.round(rawAmount)
-
-            return {
-              name: installment.name,
-              dueDate: new Date(installment.dueDate).toISOString(),
-              amount,
-            }
-          }),
-        }
-      }),
+      sessionId: parsedSessionId,
+      installmentCount: parsedInstallmentCount,
+      classes: [
+        {
+          classId: parsedClassId,
+          studentIds: [selectedStudent.id],
+          components: selectedComponentPayload,
+          installments: installmentsPayload,
+        },
+      ],
     }
 
     setIsSubmitting(true)
     try {
-      await feeStructuresApi.generate(payload)
-      toast.success("Fee structure generated successfully", {
-        description: `Generated fees for ${affectedStudents.length} students across ${selectedClasses.length} classes.`,
-      })
+      const result = await feeStructuresApi.generate(payload)
+      setGenerationResult(result)
+      setCurrentStep(3)
+      if (isValidationResponse(result) && !result.isSuccess) {
+        toast.error(result.message || "Validation failed")
+      } else {
+        toast.success("Fee generation completed")
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to generate fee structure.")
     } finally {
       setIsSubmitting(false)
     }
   }
-  
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Generate Fee Structure</h1>
-        <p className="text-muted-foreground">
-          Create and apply fee structures to students for the academic session
+    <div className="flex flex-col gap-6">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Generate Fee Structure</h1>
+        <p className="text-sm text-muted-foreground">
+          Collect the student, selected fee components, and installment count. The app sends a complete fee plan for backend validation.
         </p>
       </div>
 
@@ -373,407 +245,326 @@ export default function FeeGenerationPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {isLoading && !error && (
-        <div className="text-sm text-muted-foreground">Loading fee generation data...</div>
-      )}
-      
-      <StepIndicator currentStep={currentStep} steps={steps} />
-      
-      {/* Step 1: Select Session */}
+      {isLoading && !error && <div className="text-sm text-muted-foreground">Loading fee generation data...</div>}
+
+      <StepIndicator currentStep={currentStep} />
+
       {currentStep === 0 && (
-        <Card>
+        <Card className="border-border/50 shadow-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5" />
-              Select Academic Session
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <GraduationCap className="h-5 w-5 text-primary" />
+              Select Student
             </CardTitle>
-            <CardDescription>
-              Choose the academic session for which you want to generate fees
-            </CardDescription>
+            <CardDescription>Choose the student for whom the backend should generate the fee structure.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  onClick={() => setSelectedSession(session.id.toString())}
-                  className={`relative flex cursor-pointer items-center gap-4 rounded-lg border p-4 transition-colors ${
-                    selectedSession === session.id.toString()
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted/50"
-                  }`}
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                    <CalendarDays className="h-6 w-6 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold">{session.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(session.startDate).toLocaleDateString("en-IN", { month: "short", year: "numeric" })} - {new Date(session.endDate).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}
-                    </p>
-                  </div>
-                  {session.isActive && (
-                    <Badge variant="secondary">Active</Badge>
-                  )}
-                  {selectedSession === session.id.toString() && (
-                    <div className="absolute right-4 top-4">
-                      <Check className="h-5 w-5 text-primary" />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Step 2: Select Classes */}
-      {currentStep === 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GraduationCap className="h-5 w-5" />
-              Select Classes
-            </CardTitle>
-            <CardDescription>
-              Choose the classes for which you want to generate fee structures
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4 mb-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (selectedClasses.length === classes.length) {
-                    setSelectedClasses([])
-                  } else {
-                    classes.forEach(c => initializeClassComponents(c.id))
-                    setSelectedClasses(classes.map(c => c.id))
-                  }
-                }}
-              >
-                {selectedClasses.length === classes.length ? "Deselect All" : "Select All"}
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                {selectedClasses.length} of {classes.length} classes selected
-              </span>
-            </div>
-            
-            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {classes.map((cls) => {
-                const isSelected = selectedClasses.includes(cls.id)
-                const studentCount = students.filter(s => s.classId === cls.id).length
-                return (
-                  <div
-                    key={cls.id}
-                    onClick={() => toggleClass(cls.id)}
-                    className={`flex cursor-pointer items-center gap-3 rounded-lg border p-4 transition-colors ${
-                      isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
-                    }`}
-                  >
-                    <Checkbox checked={isSelected} />
-                    <div className="flex-1">
-                      <p className="font-medium">{cls.name} - {cls.section}</p>
-                      <p className="text-xs text-muted-foreground">{studentCount} students</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Step 3: Fee Components */}
-      {currentStep === 2 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <IndianRupee className="h-5 w-5" />
-              Configure Fee Components
-            </CardTitle>
-            <CardDescription>
-              Set the fee amount for each component per class
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              {selectedClasses.map((classId) => {
-                const cls = classes.find(c => c.id === classId)
-                const amounts = componentAmounts[classId] || []
-                return (
-                  <div key={classId} className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold">{cls?.name} - {cls?.section}</h3>
-                      <Badge variant="outline">
-                        Total: {formatCurrency(classTotals[classId] || 0)}
-                      </Badge>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      {feeComponents.map((fc) => {
-                        const ca = amounts.find(a => a.componentId === fc.id)
-                        return (
-                          <div key={fc.id} className="space-y-2">
-                            <Label htmlFor={`${classId}-${fc.id}`}>{fc.name}</Label>
-                            <div className="relative">
-                              <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                              <Input
-                                id={`${classId}-${fc.id}`}
-                                type="number"
-                                value={ca?.amount || 0}
-                                onChange={(e) => updateComponentAmount(classId, fc.id, parseInt(e.target.value) || 0)}
-                                className="pl-9"
-                              />
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <hr className="my-4" />
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Step 4: Installments */}
-      {currentStep === 3 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Configure Installments
-            </CardTitle>
-            <CardDescription>
-              Set up the payment installment schedule
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="mb-4">
-              <Label>Installment Schedule</Label>
-              <Select value={installmentSchedule} onValueChange={(v) => {
-                const value = v as "annual" | "semi" | "quarterly" | "monthly"
-                setInstallmentSchedule(value)
-                setInstallments(generateInstallmentsForSchedule(value))
-              }}>
+            <div className="grid gap-2 md:max-w-lg">
+              <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select student" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="annual">Annual (1 Payment)</SelectItem>
-                  <SelectItem value="semi">Semi-Annual (2 Payments)</SelectItem>
-                  <SelectItem value="quarterly">Quarterly (4 Payments)</SelectItem>
-                  <SelectItem value="monthly">Monthly (12 Payments)</SelectItem>
+                  {students.map((student) => (
+                    <SelectItem key={student.id} value={student.id.toString()}>
+                      {studentLabel(student)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {installments.reduce((sum, i) => sum + i.percentage, 0) !== 100 && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Invalid Distribution</AlertTitle>
-                <AlertDescription>
-                  Total percentage must equal 100%. Current total: {installments.reduce((sum, i) => sum + i.percentage, 0)}%
-                </AlertDescription>
-              </Alert>
+            {selectedStudent && (
+              <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Student</p>
+                  <p className="font-semibold">{selectedStudent.firstName} {selectedStudent.lastName}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Class</p>
+                  <p className="font-semibold">{selectedStudent.className || (selectedStudent.class ? `${selectedStudent.class.name}-${selectedStudent.class.section}` : "N/A")}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Student ID</p>
+                  <p className="font-semibold">STU{String(selectedStudent.id).padStart(3, "0")}</p>
+                </div>
+              </div>
             )}
-            
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Installment Name</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Percentage (%)</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {installments.map((installment) => (
-                  <TableRow key={installment.id}>
-                    <TableCell>
-                      <Input
-                        value={installment.name}
-                        onChange={(e) => updateInstallment(installment.id, "name", e.target.value)}
-                        placeholder="Installment name"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="date"
-                        value={installment.dueDate}
-                        onChange={(e) => updateInstallment(installment.id, "dueDate", e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={installment.percentage}
-                        onChange={(e) => updateInstallment(installment.id, "percentage", parseInt(e.target.value) || 0)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeInstallment(installment.id)}
-                        disabled={installments.length <= 1}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            
-            <Button variant="outline" onClick={addInstallment}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Installment
-            </Button>
           </CardContent>
         </Card>
       )}
-      
-      {/* Step 5: Review */}
-      {currentStep === 4 && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Review Fee Structure
-              </CardTitle>
-              <CardDescription>
-                Review the fee structure before generating
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Summary */}
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <CalendarDays className="h-8 w-8 text-primary" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Session</p>
-                    <p className="font-semibold">{activeSession?.name}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <GraduationCap className="h-8 w-8 text-primary" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Classes</p>
-                    <p className="font-semibold">{selectedClasses.length} selected</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <Users className="h-8 w-8 text-primary" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Students Affected</p>
-                    <p className="font-semibold">{affectedStudents.length} students</p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Class-wise breakdown */}
-              <div>
-                <h4 className="font-semibold mb-3">Class-wise Fee Structure</h4>
-                <Table>
-                  <TableHeader>
+
+      {currentStep === 1 && (
+        <Card className="border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Layers3 className="h-5 w-5 text-primary" />
+              Select Fee Components
+            </CardTitle>
+            <CardDescription>Select one or more fee components. Amounts are handled by the backend.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12" />
+                    <TableHead>Component</TableHead>
+                    <TableHead className="text-right">Base Amount</TableHead>
+                    <TableHead>Frequency</TableHead>
+                    <TableHead>Optional</TableHead>
+                    <TableHead>Description</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {feeComponents.length === 0 ? (
                     <TableRow>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Students</TableHead>
-                      <TableHead className="text-right">Total Fee</TableHead>
-                      <TableHead className="text-right">Expected Collection</TableHead>
+                      <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                        No fee components found.
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedClasses.map((classId) => {
-                      const cls = classes.find(c => c.id === classId)
-                      const studentCount = students.filter(s => s.classId === classId).length
-                      const total = classTotals[classId] || 0
+                  ) : (
+                    feeComponents.map((component) => {
+                      const checked = selectedComponentIds.includes(component.id)
                       return (
-                        <TableRow key={classId}>
-                          <TableCell className="font-medium">{cls?.name} - {cls?.section}</TableCell>
-                          <TableCell>{studentCount}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(total)}</TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {formatCurrency(total * studentCount)}
+                        <TableRow key={component.id}>
+                          <TableCell>
+                            <Checkbox checked={checked} onCheckedChange={() => toggleComponent(component.id)} />
+                          </TableCell>
+                          <TableCell className="font-medium">{component.name}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(component.amount)}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="font-normal">{component.frequency}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={component.isOptional ? "secondary" : "default"} className="font-normal">
+                              {component.isOptional ? "Yes" : "No"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {component.description || "-"}
                           </TableCell>
                         </TableRow>
                       )
-                    })}
-                    <TableRow className="bg-muted/50">
-                      <TableCell className="font-bold">Total</TableCell>
-                      <TableCell className="font-bold">{affectedStudents.length}</TableCell>
-                      <TableCell></TableCell>
-                      <TableCell className="text-right font-bold">
-                        {formatCurrency(
-                          selectedClasses.reduce((sum, classId) => {
-                            const studentCount = students.filter(s => s.classId === classId).length
-                            return sum + (classTotals[classId] || 0) * studentCount
-                          }, 0)
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
-              
-              {/* Installment schedule */}
-              <div>
-                <h4 className="font-semibold mb-3">Installment Schedule</h4>
-                <div className="grid gap-3 md:grid-cols-4">
-                  {installments.map((inst) => (
-                    <div key={inst.id} className="p-4 rounded-lg border">
-                      <p className="font-medium">{inst.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Due: {new Date(inst.dueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                      </p>
-                      <Badge variant="outline" className="mt-2">{inst.percentage}%</Badge>
-                    </div>
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {selectedComponents.length > 0 && (
+              <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+                <p className="text-sm text-muted-foreground">Selected components</p>
+                <p className="font-semibold">{selectedComponents.length} component{selectedComponents.length !== 1 ? "s" : ""}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {selectedComponents.map((component) => (
+                    <Badge key={component.id} variant="outline">{component.name}</Badge>
                   ))}
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {currentStep === 2 && (
+        <Card className="border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <IndianRupee className="h-5 w-5 text-primary" />
+              Select Installment Count
+            </CardTitle>
+            <CardDescription>The fee plan will include the selected number of installments.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 md:max-w-sm">
+              <Select value={installmentCount} onValueChange={setInstallmentCount}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select installments" />
+                </SelectTrigger>
+                <SelectContent>
+                  {installmentOptions.map((count) => (
+                    <SelectItem key={count} value={count.toString()}>
+                      {count} installment{count > 1 ? "s" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              Installments are generated before submission and validated again by the backend.
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {currentStep === 3 && (
+        <div className="space-y-4">
+          <Card className="border-border/50 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <ClipboardList className="h-5 w-5 text-primary" />
+                Request Preview
+              </CardTitle>
+              <CardDescription>Review the request before sending it to the calculation engine.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Student</p>
+                  <p className="font-semibold">{selectedStudent ? studentLabel(selectedStudent) : "N/A"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Components</p>
+                  <p className="font-semibold">{selectedComponents.length}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Installments</p>
+                  <p className="font-semibold">{installmentCount}</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Component</TableHead>
+                      <TableHead className="text-right">Base Amount</TableHead>
+                      <TableHead>Frequency</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedComponents.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                          No components selected.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      selectedComponents.map((component) => (
+                        <TableRow key={component.id}>
+                          <TableCell>{component.name}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(component.amount)}</TableCell>
+                          <TableCell>{component.frequency}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
-          
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Important</AlertTitle>
-            <AlertDescription>
-              This action will create fee records for {affectedStudents.length} students. 
-              Make sure all information is correct before proceeding.
-            </AlertDescription>
-          </Alert>
+
+          {generationResult && (
+            <Card className="border-border/50 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <Check className="h-5 w-5 text-success" />
+                  Backend Preview
+                </CardTitle>
+                <CardDescription>The backend response is the source of truth for totals and installment distribution.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {isFeeGenerationResponse(generationResult) ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="rounded-lg bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Total Amount</p>
+                        <p className="text-2xl font-semibold">{formatCurrency(generationResult.totalAmount)}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Yearly Amount</p>
+                        <p className="text-2xl font-semibold">{formatCurrency(generationResult.yearlyAmount)}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Remaining Balance</p>
+                        <p className="text-2xl font-semibold">{formatCurrency(generationResult.remainingBalance)}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>No.</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead className="text-right">Remaining Balance</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {generationResult.installments.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                                No installment breakdown returned.
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            generationResult.installments.map((installment) => (
+                              <TableRow key={installment.installmentNo}>
+                                <TableCell>{installment.installmentNo}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(installment.amount)}</TableCell>
+                                <TableCell>{installment.dueDate ? new Date(installment.dueDate).toLocaleDateString("en-IN") : "-"}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(installment.remainingBalance)}</TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
+                ) : isValidationResponse(generationResult) ? (
+                  <Alert variant={generationResult.isSuccess ? "default" : "destructive"}>
+                    <AlertTitle>{generationResult.message || (generationResult.isSuccess ? "Completed" : "Validation failed")}</AlertTitle>
+                    <AlertDescription>
+                      {generationResult.failedRecords?.length ? (
+                        <ul className="list-disc pl-5">
+                          {generationResult.failedRecords.map((record, idx) => (
+                            <li key={`${record.studentId}-${record.classId}-${idx}`}>{record.reason}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        "No additional details returned."
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert variant="destructive">
+                    <AlertTitle>Unexpected response</AlertTitle>
+                    <AlertDescription>Backend did not return an installment breakdown.</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!generationResult && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Preview not generated yet</AlertTitle>
+              <AlertDescription>
+                Click Generate Fee Structure to send the request and render the backend-calculated preview.
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       )}
-      
-      {/* Navigation */}
+
       <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={() => setCurrentStep(prev => prev - 1)}
-          disabled={currentStep === 0}
-        >
-          <ChevronLeft className="h-4 w-4 mr-2" />
+        <Button variant="outline" onClick={() => setCurrentStep((prev) => prev - 1)} disabled={currentStep === 0}>
+          <ChevronLeft className="mr-2 h-4 w-4" />
           Previous
         </Button>
-        
+
         {currentStep < steps.length - 1 ? (
-          <Button
-            onClick={() => setCurrentStep(prev => prev + 1)}
-            disabled={!canProceed()}
-          >
+          <Button onClick={() => setCurrentStep((prev) => prev + 1)} disabled={!canProceed()}>
             Next
-            <ChevronRight className="h-4 w-4 ml-2" />
+            <ChevronRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
           <Button onClick={handleGenerate} disabled={isSubmitting}>
-            <Check className="h-4 w-4 mr-2" />
+            <Check className="mr-2 h-4 w-4" />
             {isSubmitting ? "Generating..." : "Generate Fee Structure"}
           </Button>
         )}

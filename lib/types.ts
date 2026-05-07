@@ -68,9 +68,21 @@ export interface StudentParent {
 
 export interface FeeComponent {
   id: number
-  tenantId: number
+  tenantId?: number
   name: string
-  type: string
+  amount: number
+  frequency: Frequency
+  isOptional?: boolean
+  description?: string
+  type?: string
+}
+
+export enum Frequency {
+  Monthly = "Monthly",
+  Quarterly = "Quarterly",
+  HalfYearly = "HalfYearly",
+  Yearly = "Yearly",
+  OneTime = "OneTime",
 }
 
 export interface FeeStructure {
@@ -246,7 +258,57 @@ export interface CreateFeeComponentCommand {
   tenantId?: number
   name: string
   type: string
+  amount: number
+  frequency: Frequency
+  isOptional?: boolean
+  description?: string
 }
+
+export interface FeeComponentDto {
+  id: number
+  name: string
+  amount: number
+  frequency: Frequency
+}
+
+export interface GenerateFeeRequest {
+  tenantId?: number
+  studentId: number
+  installmentCount: number
+  components: Array<{
+    componentId: number
+  }>
+}
+
+export interface FeeGenerationInstallmentDto {
+  installmentNo: number
+  amount: number
+  dueDate?: string
+  remainingBalance?: number
+}
+
+export interface FeeGenerationResponse {
+  totalAmount: number
+  yearlyAmount?: number
+  remainingBalance?: number
+  installments: FeeGenerationInstallmentDto[]
+}
+
+export interface FeeGenerationFailedRecord {
+  studentId: number
+  classId: number
+  reason: string
+}
+
+export interface FeeGenerationValidationResponse {
+  successCount: number
+  skippedCount: number
+  failedRecords: FeeGenerationFailedRecord[]
+  message: string
+  isSuccess: boolean
+}
+
+export type FeeStructuresGenerateResponse = FeeGenerationResponse | FeeGenerationValidationResponse
 
 export interface CreateFeeStructureCommand {
   tenantId?: number
@@ -257,14 +319,15 @@ export interface CreateFeeStructureCommand {
 export interface GenerateFeeStructureCommand {
   tenantId?: number
   sessionId: number
+  installmentCount?: number
   classes: Array<{
     classId: number
     studentIds: number[]
     components: Array<{
       componentId: number
-      amount: number
+      amount?: number
     }>
-    installments: Array<{
+    installments?: Array<{
       name: string
       dueDate: string
       amount: number
