@@ -54,6 +54,16 @@ function studentName(student?: Student) {
   return `${student.firstName} ${student.lastName}`
 }
 
+function paymentStudentName(payment: Payment, student?: Student) {
+  if (payment.studentName) return payment.studentName
+  return studentName(student)
+}
+
+function paymentTypeLabel(paymentType?: string, installmentId?: number | null) {
+  const type = paymentType || (installmentId ? "installment" : "full")
+  return type === "installment" ? "Installment" : "Full"
+}
+
 function feeRemaining(fee: StudentFee) {
   return fee.remainingAmount ?? fee.balance
 }
@@ -65,6 +75,7 @@ export default function PaymentsPage() {
   const [studentFee, setStudentFee] = useState<StudentFee | null>(null)
   const [selectedInstallments, setSelectedInstallments] = useState<number[]>([])
   const [amountPaid, setAmountPaid] = useState("")
+  const [paymentType, setPaymentType] = useState<"full" | "installment">("full")
   const [paymentMode, setPaymentMode] = useState("upi")
   const [transactionId, setTransactionId] = useState("")
   const [groupStudentIds, setGroupStudentIds] = useState<number[]>([])
@@ -110,11 +121,13 @@ export default function PaymentsPage() {
       const data = await studentFeesApi.getByStudentId(Number(studentId))
       setStudentFee(data)
       setSelectedInstallments([])
+      setPaymentType("full")
     } catch (err) {
       const fallbackFee = students.find((student) => student.id === Number(studentId))?.studentFees?.[0]
       if (fallbackFee) {
         setStudentFee(fallbackFee)
         setSelectedInstallments([])
+        setPaymentType("full")
         setFeeError(null)
       } else {
         setStudentFee(null)
@@ -144,17 +157,20 @@ export default function PaymentsPage() {
     const query = searchQuery.toLowerCase()
     return payments.filter((payment) => {
       const student = payment.student || studentMap.get(payment.studentId)
-      const name = studentName(student).toLowerCase()
+      const name = paymentStudentName(payment, student).toLowerCase()
       return name.includes(query) || String(payment.id).includes(query)
     })
   }, [payments, searchQuery, studentMap])
 
   const toggleInstallment = (installment: Installment) => {
-    setSelectedInstallments((prev) =>
-      prev.includes(installment.id)
+    setSelectedInstallments((prev) => {
+      const next = prev.includes(installment.id)
         ? prev.filter((id) => id !== installment.id)
         : [...prev, installment.id]
-    )
+
+      setPaymentType(next.length > 0 ? "installment" : "full")
+      return next
+    })
   }
 
   const handleSinglePayment = async (event: React.FormEvent) => {
@@ -170,6 +186,11 @@ export default function PaymentsPage() {
       return
     }
 
+    if (paymentType === "installment" && selectedInstallments.length === 0) {
+      toast.error("Please select at least one installment for installment payments.")
+      return
+    }
+
     setIsSubmitting(true)
     try {
       await paymentsApi.create({
@@ -177,14 +198,16 @@ export default function PaymentsPage() {
         tenantId: selectedStudent.tenantId,
         studentFeeId: studentFee.id,
         amountPaid: amount,
+        paymentType,
         mode: paymentMode,
         transactionId: transactionId || null,
-        installments: selectedInstallments,
+        installments: paymentType === "installment" ? selectedInstallments : [],
       })
       toast.success("Payment recorded successfully")
       setAmountPaid("")
       setTransactionId("")
       setSelectedInstallments([])
+      setPaymentType("full")
       await Promise.all([loadStudentFee(selectedStudentId), loadBaseData()])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment.")
@@ -293,7 +316,7 @@ export default function PaymentsPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSinglePayment} className="grid gap-5">
-                <div className="grid gap-4 lg:grid-cols-[1fr_180px_180px_1fr]">
+                <div className="grid gap-4 lg:grid-cols-[1fr_180px_180px_180px_1fr]">
                   <div className="grid gap-2">
                     <Label>Student</Label>
                     <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
@@ -304,6 +327,25 @@ export default function PaymentsPage() {
                             {studentName(student)}
                           </SelectItem>
                         ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Payment Type</Label>
+                    <Select
+                      value={paymentType}
+                      onValueChange={(value) => {
+                        const nextType = value as "full" | "installment"
+                        setPaymentType(nextType)
+                        if (nextType === "full") {
+                          setSelectedInstallments([])
+                        }
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="full">Full Payment</SelectItem>
+                        <SelectItem value="installment">Installment Payment</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -481,6 +523,7 @@ export default function PaymentsPage() {
                 <TableRow>
                   <TableHead>Payment ID</TableHead>
                   <TableHead>Student</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Mode</TableHead>
                   <TableHead>Date</TableHead>
@@ -489,19 +532,25 @@ export default function PaymentsPage() {
               </TableHeader>
               <TableBody>
                 {paymentRows.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">No payments found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">No payments found.</TableCell></TableRow>
                 ) : (
                   paymentRows.map((payment) => {
                     const student = payment.student || studentMap.get(payment.studentId)
+                    const displayStudentName = paymentStudentName(payment, student)
                     return (
                       <TableRow key={payment.id}>
                         <TableCell className="font-mono text-xs">PAY{String(payment.id).padStart(4, "0")}</TableCell>
                         <TableCell>
                           {student ? (
                             <Link href={`/students/${student.id}`} className="font-medium hover:underline">
-                              {studentName(student)}
+                              {displayStudentName}
                             </Link>
-                          ) : "Student N/A"}
+                          ) : displayStudentName}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="font-normal">
+                            {paymentTypeLabel(payment.paymentType, payment.installmentId)}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(payment.amountPaid)}</TableCell>
                         <TableCell><Badge variant="secondary" className="font-normal">{paymentModeLabels[payment.mode] || payment.mode}</Badge></TableCell>

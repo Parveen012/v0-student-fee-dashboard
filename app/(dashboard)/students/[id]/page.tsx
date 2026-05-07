@@ -127,6 +127,16 @@ function PaymentModeBadge({ mode }: { mode: string }) {
   )
 }
 
+function PaymentTypeBadge({ paymentType, installmentId }: { paymentType?: string; installmentId: number | null }) {
+  const type = paymentType || (installmentId ? "installment" : "full")
+
+  return (
+    <Badge variant="secondary" className="font-normal">
+      {type === "installment" ? "Installment" : "Full"}
+    </Badge>
+  )
+}
+
 // Format currency
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -166,6 +176,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [fineDialogOpen, setFineDialogOpen] = useState(false)
   const [selectedInstallment, setSelectedInstallment] = useState<number | null>(null)
   const [selectedFineInstallmentId, setSelectedFineInstallmentId] = useState<number | null>(null)
+  const [paymentType, setPaymentType] = useState<"full" | "installment">("full")
   
   // Payment form state
   const [paymentAmount, setPaymentAmount] = useState("")
@@ -178,6 +189,24 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   
   // Fine form state
   const [selectedFineId, setSelectedFineId] = useState("")
+
+  const openPaymentDialog = useCallback(
+    (
+      options?: {
+        installmentId?: number | null
+        amount?: string
+        paymentType?: "full" | "installment"
+      }
+    ) => {
+      const nextInstallmentId = options?.installmentId ?? null
+      setSelectedInstallment(nextInstallmentId)
+      setPaymentAmount(options?.amount ?? "")
+      setPaymentType(options?.paymentType ?? (nextInstallmentId ? "installment" : "full"))
+      setTransactionId("")
+      setPaymentDialogOpen(true)
+    },
+    []
+  )
   
   const loadStudentData = useCallback(async () => {
     setIsLoading(true)
@@ -368,6 +397,11 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       return
     }
 
+    if (paymentType === "installment" && !selectedInstallment) {
+      toast.error("Please select an installment for installment payments.")
+      return
+    }
+
     if (!studentFee) {
       toast.error("Fee data is not available for this student.")
       return
@@ -376,9 +410,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     try {
       await paymentsApi.create({
         studentFeeId: studentFee.id,
-        installmentId: selectedInstallment,
+        installmentId: paymentType === "installment" ? selectedInstallment : null,
         amountPaid: amount,
         paymentDate: new Date().toISOString(),
+        paymentType,
         mode: paymentMode,
         transactionId: transactionId || null,
         studentId: student.id,
@@ -389,6 +424,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       setPaymentAmount("")
       setTransactionId("")
       setSelectedInstallment(null)
+      setPaymentType("full")
       await loadStudentData()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment.")
@@ -628,7 +664,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <Button 
                   size="sm" 
                   className="w-full"
-                  onClick={() => setPaymentDialogOpen(true)}
+                  onClick={() => openPaymentDialog({ amount: studentFee.balance.toString(), paymentType: "full" })}
                   disabled={studentFee.balance <= 0}
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
@@ -694,9 +730,11 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             size="sm" 
                             variant="outline"
                             onClick={() => {
-                              setSelectedInstallment(installment.id)
-                              setPaymentAmount(installment.balance.toString())
-                              setPaymentDialogOpen(true)
+                              openPaymentDialog({
+                                installmentId: installment.id,
+                                amount: installment.balance.toString(),
+                                paymentType: "installment",
+                              })
                             }}
                           >
                             Pay Now
@@ -725,7 +763,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   <CardTitle>Payment History</CardTitle>
                   <CardDescription>All payments made by this student</CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setPaymentDialogOpen(true)}>
+                <Button size="sm" onClick={() => openPaymentDialog({ amount: studentFee.balance.toString(), paymentType: "full" })}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Payment
                 </Button>
@@ -743,6 +781,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     <TableRow>
                       <TableHead>Receipt #</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead>Installment</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Mode</TableHead>
@@ -758,6 +797,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                         <TableRow key={payment.id}>
                           <TableCell className="font-medium">RCP{String(payment.id).padStart(4, "0")}</TableCell>
                           <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                          <TableCell>
+                            <PaymentTypeBadge paymentType={payment.paymentType} installmentId={payment.installmentId} />
+                          </TableCell>
                           <TableCell>{installment?.name || "General"}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(payment.amountPaid)}</TableCell>
                           <TableCell>
@@ -971,10 +1013,32 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
               Record Payment
             </DialogTitle>
             <DialogDescription>
-              Record a new payment for {student.firstName} {student.lastName}
+              Record a full payment or installment payment for {student.firstName} {student.lastName}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Payment Type</Label>
+              <Select
+                value={paymentType}
+                onValueChange={(value) => {
+                  const nextType = value as "full" | "installment"
+                  setPaymentType(nextType)
+                  if (nextType === "full") {
+                    setSelectedInstallment(null)
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full">Full Payment</SelectItem>
+                  <SelectItem value="installment">Installment Payment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-2">
               <Label>Payment Amount</Label>
               <div className="relative">
@@ -991,6 +1055,27 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 Balance due: {formatCurrency(studentFee.balance)}
               </p>
             </div>
+
+            {paymentType === "installment" && (
+              <div className="space-y-2">
+                <Label>Installment</Label>
+                <Select
+                  value={selectedInstallment ? selectedInstallment.toString() : ""}
+                  onValueChange={(value) => setSelectedInstallment(Number(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select installment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {studentFee.installments?.map((installment) => (
+                      <SelectItem key={installment.id} value={installment.id.toString()}>
+                        {installment.name} - {formatCurrency(installment.balance)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             
             <div className="space-y-2">
               <Label>Payment Mode</Label>

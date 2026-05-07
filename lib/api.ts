@@ -196,8 +196,10 @@ export const studentFeesApi = {
 
     for (const endpoint of endpoints) {
       try {
-        const data = await fetchApi<Partial<StudentFee> & { status?: string }>(endpoint)
-        return normalizeStudentFee(data)
+        const data = await fetchApi<Partial<StudentFee> & { status?: string } | Array<Partial<StudentFee> & { status?: string }>>(endpoint)
+        // Handle both single object and array responses
+        const fee = Array.isArray(data) ? data[0] : data
+        if (fee) return normalizeStudentFee(fee)
       } catch (err) {
         lastError = err
       }

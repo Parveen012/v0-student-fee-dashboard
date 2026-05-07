@@ -106,8 +106,8 @@ export default function DiscountsPage() {
       const studentName = sd.student
         ? `${sd.student.firstName} ${sd.student.lastName}`
         : `Student ${sd.studentId}`
-      const studentClass = sd.student?.class
-        ? `${sd.student.class.name}-${sd.student.class.section}`
+      const studentClass = sd.student?.className
+        ? `${sd.student.className}-${sd.student.classSection}`
         : "N/A"
       const type: DiscountCategory = (() => {
         if (discount?.discountType && (discount.discountType in discountTypeConfig)) {

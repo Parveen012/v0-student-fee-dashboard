@@ -228,8 +228,14 @@ export default function StudentsPage() {
                     </Select>
                   </div>
                 </div>
+                <div className="grid gap-3 ">
+                <Label>Date of Birth</Label>
                 <Input type="date" value={newStudent.dob} onChange={(e) => setNewStudent((prev) => ({ ...prev, dob: e.target.value }))} required />
-                <Input type="date" value={newStudent.admissionDate} onChange={(e) => setNewStudent((prev) => ({ ...prev, admissionDate: e.target.value }))} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Admission Date</Label>
+                  <Input type="date" value={newStudent.admissionDate} onChange={(e) => setNewStudent((prev) => ({ ...prev, admissionDate: e.target.value }))} required />
+                </div>
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>

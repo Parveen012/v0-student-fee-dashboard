@@ -39,6 +39,8 @@ export interface Student {
   dob: string | null
   gender: string
   classId: number | null
+  className?: string
+  classSection?: string
   admissionDate: string
   status: "active" | "inactive" | "graduated" | "transferred"
   class?: Class
@@ -127,9 +129,13 @@ export interface Payment {
   tenantId: number
   amountPaid: number
   paymentDate: string
+  paymentType?: "full" | "installment"
   mode: "cash" | "upi" | "card" | "bank_transfer" | "cheque" | "online"
   transactionId: string | null
   status?: PaymentStatus
+  studentName?: string
+  className?: string
+  sessionName?: string
   student?: Student
   installment?: Installment
 }
@@ -294,6 +300,7 @@ export interface CreatePaymentCommand {
   installmentId?: number | null
   amountPaid: number
   paymentDate?: string
+  paymentType?: "full" | "installment"
   mode?: string
   transactionId?: string | null
   studentId: number
