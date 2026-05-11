@@ -20,6 +20,10 @@ import {
   Wand2,
   Link2,
   FileText,
+  BusFront,
+  Map,
+  MapPin,
+  Route,
 } from "lucide-react"
 import {
   Sidebar,
@@ -31,6 +35,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarFooter,
 } from "@/components/ui/sidebar"
 
@@ -53,6 +60,13 @@ const managementMenuItems = [
   { title: "Fines", url: "/fines", icon: CircleDollarSign },
   { title: "Invoices", url: "/invoices", icon: FileText },
   { title: "Reports", url: "/reports", icon: BarChart3 },
+]
+
+const transportMenuItems = [
+  { title: "Routes", url: "/transport/routes", icon: Route },
+  { title: "Stops", url: "/transport/stops", icon: MapPin },
+  { title: "Policy", url: "/transport/policy", icon: Map },
+  { title: "Assignments", url: "/transport/assignments", icon: BusFront },
 ]
 
 const settingsMenuItems = [{ title: "Settings", url: "/settings", icon: Settings }]
@@ -121,6 +135,38 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="px-3 text-xs font-medium text-muted-foreground">
+            Transport
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={pathname.startsWith("/transport")}
+                  tooltip="Transport"
+                  className="h-10"
+                >
+                  <BusFront className="size-4" />
+                  <span>Transport</span>
+                </SidebarMenuButton>
+                <SidebarMenuSub>
+                  {transportMenuItems.map((item) => (
+                    <SidebarMenuSubItem key={item.title}>
+                      <SidebarMenuSubButton asChild isActive={pathname === item.url}>
+                        <Link href={item.url}>
+                          <item.icon className="size-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

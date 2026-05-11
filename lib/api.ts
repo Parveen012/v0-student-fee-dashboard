@@ -46,6 +46,14 @@ import type {
   GenerateFeeStructureCommand,
   GenerateStudentFeeCommand,
   GenerateClassFeeCommand,
+  TransportRoute,
+  RouteStop,
+  TransportPolicy,
+  StudentTransport,
+  CreateTransportRouteCommand,
+  CreateRouteStopCommand,
+  CreateTransportPolicyCommand,
+  CreateStudentTransportCommand,
 } from "./types"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
@@ -686,6 +694,76 @@ export const invoicesApi = {
 // ============ Invoice Details API ============
 export const invoiceDetailsApi = {
   getAll: () => fetchApi<InvoiceDetail[]>("/InvoiceDetails"),
+}
+
+// ============ Transport Routes API ============
+export const transportRoutesApi = {
+  getAll: () => fetchApi<TransportRoute[]>("/TransportRoute"),
+  getById: (id: number) => fetchApi<TransportRoute>(`/TransportRoute/${id}`),
+  create: (data: CreateTransportRouteCommand) =>
+    fetchApi<TransportRoute>("/TransportRoute", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: CreateTransportRouteCommand) =>
+    fetchApi<TransportRoute>(`/TransportRoute/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/TransportRoute/${id}`, { method: "DELETE" }),
+}
+
+// ============ Route Stops API ============
+export const routeStopsApi = {
+  getAll: () => fetchApi<RouteStop[]>("/RouteStop"),
+  getById: (id: number) => fetchApi<RouteStop>(`/RouteStop/${id}`),
+  create: (data: CreateRouteStopCommand) =>
+    fetchApi<RouteStop>("/RouteStop", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: CreateRouteStopCommand) =>
+    fetchApi<RouteStop>(`/RouteStop/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/RouteStop/${id}`, { method: "DELETE" }),
+}
+
+// ============ Transport Policy API ============
+export const transportPoliciesApi = {
+  getAll: () => fetchApi<TransportPolicy[]>("/TransportPolicy"),
+  getById: (id: number) => fetchApi<TransportPolicy>(`/TransportPolicy/${id}`),
+  create: (data: CreateTransportPolicyCommand) =>
+    fetchApi<TransportPolicy>("/TransportPolicy", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: CreateTransportPolicyCommand) =>
+    fetchApi<TransportPolicy>(`/TransportPolicy/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+}
+
+// ============ Student Transport API ============
+export const studentTransportApi = {
+  getAll: () => fetchApi<StudentTransport[]>("/StudentTransport"),
+  getById: (id: number) => fetchApi<StudentTransport>(`/StudentTransport/${id}`),
+  create: (data: CreateStudentTransportCommand) =>
+    fetchApi<StudentTransport>("/StudentTransport", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: CreateStudentTransportCommand) =>
+    fetchApi<StudentTransport>(`/StudentTransport/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/StudentTransport/${id}`, { method: "DELETE" }),
 }
 
 // ============ Discounts API ============

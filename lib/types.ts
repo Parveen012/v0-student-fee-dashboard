@@ -302,6 +302,53 @@ export interface InvoiceDetail {
   invoice?: Invoice
 }
 
+export interface TransportRoute {
+  id: number
+  tenantId?: number
+  routeName: string
+  vehicleNo: string
+  driverName: string
+  capacity: number
+}
+
+export interface RouteStop {
+  id: number
+  tenantId?: number
+  routeId: number
+  stopName: string
+  distanceFromSchool: number
+  monthlyAmount: number
+  sequenceNo: number
+  route?: TransportRoute
+  transportRoute?: TransportRoute
+}
+
+export interface TransportPolicy {
+  id: number
+  tenantId?: number
+  chargeType: string
+  chargeMonths: string
+  ignoreVacation: boolean
+  midMonthCalculation: boolean
+}
+
+export interface StudentTransport {
+  id: number
+  tenantId?: number
+  studentId: number
+  routeId: number
+  stopId: number
+  startDate: string
+  endDate: string
+  pickupShift: string
+  dropShift: string
+  student?: Student
+  route?: TransportRoute
+  transportRoute?: TransportRoute
+  stop?: RouteStop
+  routeStop?: RouteStop
+}
+
 export interface DashboardStats {
   totalStudents: number
   totalFees: number
@@ -588,4 +635,40 @@ export interface UpdateStudentFineCommand {
   fineId?: number
   installmentId?: number | null
   isPaid?: boolean
+}
+
+export interface CreateTransportRouteCommand {
+  tenantId?: number
+  routeName: string
+  vehicleNo: string
+  driverName: string
+  capacity: number
+}
+
+export interface CreateRouteStopCommand {
+  tenantId?: number
+  routeId: number
+  stopName: string
+  distanceFromSchool: number
+  monthlyAmount: number
+  sequenceNo: number
+}
+
+export interface CreateTransportPolicyCommand {
+  tenantId?: number
+  chargeType: string
+  chargeMonths: string
+  ignoreVacation: boolean
+  midMonthCalculation: boolean
+}
+
+export interface CreateStudentTransportCommand {
+  tenantId?: number
+  studentId: number
+  routeId: number
+  stopId: number
+  startDate: string
+  endDate: string
+  pickupShift: string
+  dropShift: string
 }
