@@ -121,23 +121,53 @@ export interface FeeStructureComponent {
   finePolicy?: FinePolicy
 }
 
+export type StudentFeeStatus = "unpaid" | "partial" | "paid" | "overpaid" | "overdue"
+
 export interface StudentFee {
   id: number
+  tenantId?: number
   studentId: number
-  feeStructureId: number
+  student?: Student
+  sessionId?: number
+  sessionName?: string
+  classFeeStructureId: number
+  classFeeStructureName: string
   totalAmount: number
   discountAmount: number
   fineAmount: number
   netAmount: number
   paidAmount: number
-  remainingAmount?: number
+  dueAmount: number
   balance: number
-  status: "unpaid" | "partial" | "paid" | "overpaid"
-  student?: Student
-  feeStructure?: FeeStructure
+  status: StudentFeeStatus
+  billPeriodYear?: number
+  billPeriodMonth?: number
+  generatedDate?: string
+  feeStructureId?: number
+  feeStructure?: string
+  remainingAmount?: number
   installments?: Installment[]
   payments?: Payment[]
+  details?: StudentFeeDetail[]
 }
+
+export interface StudentFeeDetail {
+  id: number
+  studentFeeId: number
+  feeComponentId: number
+  feeComponentName: string
+  feeComponentCode?: string
+  isTransportRelated?: boolean
+  frequency?: string
+  amount: number
+  discountAmount: number
+  fineAmount: number
+  paidAmount: number
+  netAmount: number
+  status: StudentFeeStatus
+}
+
+export type FeeComponentDetail = StudentFeeDetail
 
 export interface Installment {
   id: number
@@ -417,6 +447,26 @@ export interface GenerateFeeStructureCommand {
   }>
 }
 
+export interface GenerateStudentFeeCommand {
+  tenantId?: number
+  sessionId: number
+  studentId: number
+  billingDate: string
+  includeTransportFee: boolean
+  applyFine: boolean
+  fineAssessmentDate: string
+}
+
+export interface GenerateClassFeeCommand {
+  tenantId?: number
+  sessionId: number
+  classId: number
+  billingDate: string
+  includeTransportFee: boolean
+  applyFine: boolean
+  fineAssessmentDate: string
+}
+
 export interface CreateFineCommand {
   tenantId?: number
   name: string
@@ -449,6 +499,26 @@ export interface CreateStudentParentCommand {
   studentId: number
   parentId: number
   relationType: StudentParentRelation
+}
+
+export interface ManualAllocationLineDto {
+  studentFeeDetailId: number
+  amount: number
+}
+
+export interface AllocatePaymentCommand {
+  studentId: number
+  sessionId: number
+  amount: number
+  paymentDate: string
+  paymentMode: number
+  referenceNo?: string
+  notes?: string
+  parentId?: number
+  allowManualOverride: boolean
+  addOverpaymentToWallet: boolean
+  walletAdjustmentAmount: number
+  manualAllocations: ManualAllocationLineDto[]
 }
 
 export interface CreatePaymentCommand {

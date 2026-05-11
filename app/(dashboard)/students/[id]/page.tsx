@@ -320,14 +320,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
   const feeBreakdown = useMemo(() => {
     if (!studentFee) return null
-    const componentMap = new Map(feeComponents.map((component) => [component.id, component]))
-    const structureComponents = studentFee.feeStructure?.feeStructureComponents || []
-    const breakdown = structureComponents.map((component) => ({
-      component:
-        component.feeComponent?.name ||
-        componentMap.get(component.feeComponentId)?.name ||
-        "Fee Component",
-      amount: component.amount,
+    const breakdown = (studentFee.details || []).map((detail) => ({
+      component: detail.feeComponentName || "Fee Component",
+      amount: detail.amount,
     }))
 
     return {
