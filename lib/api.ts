@@ -9,7 +9,10 @@ import type {
   FeeComponent,
   Payment,
   Discount,
+  DiscountType,
+  DiscountPolicy,
   Fine,
+  FinePolicy,
   StudentDiscount,
   StudentFine,
   StudentFee,
@@ -22,6 +25,8 @@ import type {
   CreateFeeComponentCommand,
   CreatePaymentCommand,
   CreateDiscountCommand,
+  CreateDiscountTypeCommand,
+  CreateDiscountPolicyCommand,
   CreateFineCommand,
   CreateStudentDiscountCommand,
   CreateStudentFineCommand,
@@ -31,6 +36,7 @@ import type {
   StudentParent,
   CreateStudentParentCommand,
   CreateGroupPaymentCommand,
+  CreateClassFeeStructureComponentCommand,
   Invoice,
   InvoiceDetail,
   GenerateFeeStructureCommand,
@@ -48,6 +54,20 @@ const DEFAULT_TENANT_ID =
 function withTenantId<T extends { tenantId?: number }>(data: T): T & { tenantId: number } {
   if (typeof data.tenantId === "number") return data as T & { tenantId: number }
   return { ...data, tenantId: DEFAULT_TENANT_ID }
+}
+
+type ApiEnvelope<T> = {
+  data?: T
+  isSuccess?: boolean
+  messages?: string[]
+  exception?: string | null
+  statusCode?: number
+}
+
+function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
+  if (!value || typeof value !== "object") return false
+  const record = value as Record<string, unknown>
+  return "data" in record || "isSuccess" in record || "statusCode" in record
 }
 
 // Generic fetch wrapper with error handling
@@ -73,58 +93,67 @@ async function fetchApi<T>(
   // Handle empty responses
   const text = await response.text()
   if (!text) return {} as T
-  return JSON.parse(text)
+  const parsed = JSON.parse(text) as unknown
+  if (isApiEnvelope<T>(parsed)) {
+    if (parsed.isSuccess === false) {
+      const message = parsed.exception || parsed.messages?.[0]
+      throw new Error(message || `API Error: ${response.status}`)
+    }
+    return (parsed.data ?? {}) as T
+  }
+
+  return parsed as T
 }
 
 // ============ Classes API ============
 export const classesApi = {
-  getAll: () => fetchApi<Class[]>("/Classes"),
-  getById: (id: number) => fetchApi<Class>(`/Classes/${id}`),
+  getAll: () => fetchApi<Class[]>("/Class"),
+  getById: (id: number) => fetchApi<Class>(`/Class/${id}`),
   create: (data: CreateClassCommand) =>
-    fetchApi<Class>("/Classes", {
+    fetchApi<Class>("/Class", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/Classes/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/Class/${id}`, { method: "DELETE" }),
 }
 
 // ============ Sessions API ============
 export const sessionsApi = {
-  getAll: () => fetchApi<Session[]>("/Sessions"),
-  getById: (id: number) => fetchApi<Session>(`/Sessions/${id}`),
+  getAll: () => fetchApi<Session[]>("/Session"),
+  getById: (id: number) => fetchApi<Session>(`/Session/${id}`),
   create: (data: CreateSessionCommand) =>
-    fetchApi<Session>("/Sessions", {
+    fetchApi<Session>("/Session", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/Sessions/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/Session/${id}`, { method: "DELETE" }),
 }
 
 // ============ Students API ============
 export const studentsApi = {
-  getAll: () => fetchApi<Student[]>("/Students"),
-  getById: (id: number) => fetchApi<Student>(`/Students/${id}`),
+  getAll: () => fetchApi<Student[]>("/Student"),
+  getById: (id: number) => fetchApi<Student>(`/Student/${id}`),
   create: (data: CreateStudentCommand) =>
-    fetchApi<Student>("/Students", {
+    fetchApi<Student>("/Student", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   update: (id: number, data: UpdateStudentCommand) =>
-    fetchApi<Student>(`/Students/${id}`, {
+    fetchApi<Student>(`/Student/${id}`, {
       method: "PUT",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/Students/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/Student/${id}`, { method: "DELETE" }),
 }
 
 // ============ Parents API ============
 export const parentsApi = {
-  getAll: () => fetchApi<Parent[]>("/Parents"),
+  getAll: () => fetchApi<Parent[]>("/Parent"),
   create: (data: CreateParentCommand) =>
-    fetchApi<Parent>("/Parents", {
+    fetchApi<Parent>("/Parent", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
@@ -133,65 +162,72 @@ export const parentsApi = {
 // ============ Student Parents API ============
 export const studentParentsApi = {
   getByStudentId: async (studentId: number) => {
-    try {
-      return await fetchApi<StudentParent[]>(`/StudentParents/${studentId}`)
-    } catch {
-      // Some backends expose student-parent lookup as /StudentParents/s{studentId}
-      return fetchApi<StudentParent[]>(`/StudentParents/s${studentId}`)
-    }
+    return fetchApi<StudentParent[]>(`/StudentParent/paged?StudentId=${studentId}`)
   },
   create: (data: CreateStudentParentCommand) =>
-    fetchApi<StudentParent>("/StudentParents", {
+    fetchApi<StudentParent>("/StudentParent", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/StudentParents/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/StudentParent/${id}`, { method: "DELETE" }),
 }
 
 // ============ Fee Components API ============
 export const feeComponentsApi = {
-  getAll: () => fetchApi<FeeComponent[]>("/FeeComponents"),
-  getById: (id: number) => fetchApi<FeeComponent>(`/FeeComponents/${id}`),
+  getAll: () => fetchApi<FeeComponent[]>("/FeeComponent"),
+  getById: (id: number) => fetchApi<FeeComponent>(`/FeeComponent/${id}`),
   create: (data: CreateFeeComponentCommand) =>
-    fetchApi<FeeComponent>("/FeeComponents", {
+    fetchApi<FeeComponent>("/FeeComponent", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/FeeComponents/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/FeeComponent/${id}`, { method: "DELETE" }),
 }
 
 // ============ Fee Structures API ============
 export const feeStructuresApi = {
-  getAll: () => fetchApi<FeeStructure[]>("/FeeStructures"),
-  getById: (id: number) => fetchApi<FeeStructure>(`/FeeStructures/${id}`),
+  getAll: () => fetchApi<FeeStructure[]>("/ClassFeeStructure"),
+  getById: (id: number) => fetchApi<FeeStructure>(`/ClassFeeStructure/${id}`),
   create: (data: CreateFeeStructureCommand) =>
-    fetchApi<FeeStructure>("/FeeStructures", {
+    fetchApi<FeeStructure>("/ClassFeeStructure", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   generate: (data: GenerateFeeStructureCommand) =>
-    fetchApi<void>("/FeeStructures/generate", {
+    fetchApi<void>("/FeeGeneration/generate-class", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/FeeStructures/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/ClassFeeStructure/${id}`, { method: "DELETE" }),
+}
+
+// ============ Fee Structure Components API ============
+export const feeStructureComponentsApi = {
+  create: (data: CreateClassFeeStructureComponentCommand) =>
+    fetchApi<void>("/ClassFeeStructure/components", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  update: (id: number, data: Partial<CreateClassFeeStructureComponentCommand>) =>
+    fetchApi<void>(`/ClassFeeStructure/components/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/ClassFeeStructure/components/${id}`, { method: "DELETE" }),
 }
 
 // ============ Student Fees API ============
 export const studentFeesApi = {
   getAll: async () => {
-    const data = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFees")
+    const data = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFee")
     return data.map(normalizeStudentFee)
   },
   getByStudentId: async (studentId: number) => {
-    const endpoints = [
-      `/StudentFees/${studentId}`,
-      `/StudentFees/student/${studentId}`,
-      `/StudentFees/s${studentId}`,
-    ]
+    const endpoints = [`/StudentFee/paged?StudentId=${studentId}`]
     let lastError: unknown = null
 
     for (const endpoint of endpoints) {
@@ -206,7 +242,7 @@ export const studentFeesApi = {
     }
 
     try {
-      const fees = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFees")
+      const fees = await fetchApi<Array<Partial<StudentFee> & { status?: string }>>("/StudentFee")
       const match = fees.find((fee) => fee.studentId === studentId)
       if (match) return normalizeStudentFee(match)
     } catch (err) {
@@ -272,9 +308,9 @@ function normalizeFeeStatus(
 
 // ============ Payments API ============
 export const paymentsApi = {
-  getAll: () => fetchApi<Payment[]>("/Payments"),
+  getAll: () => fetchApi<Payment[]>("/Payment"),
   create: (data: CreatePaymentCommand) =>
-    fetchApi<Payment>("/Payments", {
+    fetchApi<Payment>("/Payment", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
@@ -283,7 +319,7 @@ export const paymentsApi = {
 // ============ Group Payments API ============
 export const groupPaymentsApi = {
   create: (data: CreateGroupPaymentCommand) =>
-    fetchApi<void>("/GroupPayments", {
+    fetchApi<void>("/Payment", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
@@ -300,42 +336,65 @@ export const invoiceDetailsApi = {
 }
 
 // ============ Discounts API ============
-export const discountsApi = {
-  getAll: () => fetchApi<Discount[]>("/Discounts"),
-  getById: (id: number) => fetchApi<Discount>(`/Discounts/${id}`),
-  create: (data: CreateDiscountCommand) =>
-    fetchApi<Discount>("/Discounts", {
+// ============ Discount Types API ============
+export const discountTypesApi = {
+  getAll: () => fetchApi<DiscountType[]>("/DiscountType"),
+  getById: (id: number) => fetchApi<DiscountType>(`/DiscountType/${id}`),
+  create: (data: CreateDiscountTypeCommand) =>
+    fetchApi<DiscountType>("/DiscountType", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/Discounts/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/DiscountType/${id}`, { method: "DELETE" }),
 }
+
+// ============ Discount Policies API ============
+export const discountPoliciesApi = {
+  getAll: () => fetchApi<DiscountPolicy[]>("/DiscountPolicy"),
+  getById: (id: number) => fetchApi<DiscountPolicy>(`/DiscountPolicy/${id}`),
+  create: (data: CreateDiscountPolicyCommand) =>
+    fetchApi<DiscountPolicy>("/DiscountPolicy", {
+      method: "POST",
+      body: JSON.stringify(withTenantId(data)),
+    }),
+  delete: (id: number) =>
+    fetchApi<void>(`/DiscountPolicy/${id}`, { method: "DELETE" }),
+}
+
+// ============ Discounts API (backward compat - alias) ============
+export const discountsApi = discountPoliciesApi
 
 // ============ Student Discounts API ============
 export const studentDiscountsApi = {
-  getAll: () => fetchApi<StudentDiscount[]>("/StudentDiscounts"),
-  getById: (id: number) => fetchApi<StudentDiscount>(`/StudentDiscounts/${id}`),
+  getAll: () => fetchApi<StudentDiscount[]>("/StudentDiscount"),
+  getById: (id: number) => fetchApi<StudentDiscount>(`/StudentDiscount/${id}`),
   create: (data: CreateStudentDiscountCommand) =>
-    fetchApi<StudentDiscount>("/StudentDiscounts", {
+    fetchApi<StudentDiscount>("/StudentDiscount", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/StudentDiscounts/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/StudentDiscount/${id}`, { method: "DELETE" }),
 }
 
 // ============ Fines API ============
 export const finesApi = {
-  getAll: () => fetchApi<Fine[]>("/Fines"),
-  getById: (id: number) => fetchApi<Fine>(`/Fines/${id}`),
+  getAll: () => fetchApi<Fine[]>("/FinePolicy"),
+  getById: (id: number) => fetchApi<Fine>(`/FinePolicy/${id}`),
   create: (data: CreateFineCommand) =>
-    fetchApi<Fine>("/Fines", {
+    fetchApi<Fine>("/FinePolicy", {
       method: "POST",
       body: JSON.stringify(withTenantId(data)),
     }),
   delete: (id: number) =>
-    fetchApi<void>(`/Fines/${id}`, { method: "DELETE" }),
+    fetchApi<void>(`/FinePolicy/${id}`, { method: "DELETE" }),
+}
+
+// ============ Fine Policies API ============
+export const finePoliciesApi = {
+  getAll: () => fetchApi<FinePolicy[]>("/FinePolicy"),
+  getById: (id: number) => fetchApi<FinePolicy>(`/FinePolicy/${id}`),
 }
 
 // ============ Student Fines API ============

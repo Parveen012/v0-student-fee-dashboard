@@ -13,7 +13,7 @@ export default function ClassesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: "", section: "" })
+  const [form, setForm] = useState({ sessionId: 1, name: "", section: "" })
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
@@ -34,7 +34,7 @@ export default function ClassesPage() {
     try {
       await classesApi.create(form)
       toast.success("Class created")
-      setForm({ name: "", section: "" })
+      setForm({ sessionId: 1, name: "", section: "" })
       setIsDialogOpen(false)
       await loadData()
     } catch (err) {

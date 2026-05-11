@@ -4,10 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -35,11 +33,7 @@ function getStudentName(student?: Student) {
 }
 
 function getRelation(item: StudentParent) {
-  return item.relation || item.relationship || "Guardian"
-}
-
-function getIsFeePayer(item: StudentParent) {
-  return item.isFeePayer === true || item.IsFeePayer === true
+  return item.relationType || item.relation || item.relationship || "Guardian"
 }
 
 export default function StudentParentsPage() {
@@ -49,7 +43,6 @@ export default function StudentParentsPage() {
   const [selectedStudentId, setSelectedStudentId] = useState("")
   const [selectedParentId, setSelectedParentId] = useState("")
   const [relation, setRelation] = useState<StudentParentRelation>("Father")
-  const [isFeePayer, setIsFeePayer] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isRelationLoading, setIsRelationLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -127,14 +120,11 @@ export default function StudentParentsPage() {
       await studentParentsApi.create({
         studentId: Number(selectedStudentId),
         parentId: Number(selectedParentId),
-        relation,
-        relationship: relation,
-        isFeePayer,
+        relationType: relation,
       })
       toast.success("Parent linked to student")
       setSelectedParentId("")
       setRelation("Father")
-      setIsFeePayer(false)
       await loadStudentParents(selectedStudentId)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to link parent.")
@@ -160,7 +150,7 @@ export default function StudentParentsPage() {
           Student Parent Relations
         </h1>
         <p className="text-sm text-muted-foreground">
-          Link students with parents, relationship, and fee payer responsibility.
+          Link students with parents and relationship type.
         </p>
       </div>
 
@@ -189,7 +179,7 @@ export default function StudentParentsPage() {
           <CardDescription>POST /api/StudentParents</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[1fr_1fr_180px_160px_auto] lg:items-end">
+          <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[1fr_1fr_220px_auto] lg:items-end">
             <div className="grid gap-2">
               <Label>Student</Label>
               <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
@@ -211,7 +201,7 @@ export default function StudentParentsPage() {
                 <SelectContent>
                   {allParents.map((parent) => (
                     <SelectItem key={parent.id} value={parent.id.toString()}>
-                      {parent.name} - {parent.phone}
+                      {parent.name} - {parent.mobile || parent.phone || "-"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -228,15 +218,6 @@ export default function StudentParentsPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="flex h-10 items-center gap-2">
-              <Checkbox
-                id="isFeePayer"
-                checked={isFeePayer}
-                onCheckedChange={(checked) => setIsFeePayer(checked === true)}
-              />
-              <Label htmlFor="isFeePayer" className="font-normal">Is Fee Payer</Label>
             </div>
 
             <Button type="submit" disabled={isSubmitting}>
@@ -267,14 +248,13 @@ export default function StudentParentsPage() {
                     <TableHead>Parent</TableHead>
                     <TableHead>Relationship</TableHead>
                     <TableHead>Phone</TableHead>
-                    <TableHead>Fee Payer</TableHead>
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                      <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
                         No linked parents found for the selected student.
                       </TableCell>
                     </TableRow>
@@ -286,16 +266,7 @@ export default function StudentParentsPage() {
                         </TableCell>
                         <TableCell>{getRelation(item)}</TableCell>
                         <TableCell className="text-muted-foreground">
-                          {item.parent?.phone || "-"}
-                        </TableCell>
-                        <TableCell>
-                          {getIsFeePayer(item) ? (
-                            <Badge className="bg-success/10 text-success hover:bg-success/10">
-                              Fee Payer
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                          {item.parent?.mobile || item.parent?.phone || "-"}
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" onClick={() => handleDelete(item)}>

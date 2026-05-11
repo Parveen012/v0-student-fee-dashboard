@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
-const API_URL = process.env.API_URL || "https://localhost:7163/api"
+const API_URL = process.env.API_URL || "https://localhost:7072/api/"
 const API_KEY = process.env.API_KEY
-const API_KEY_HEADER = process.env.API_KEY_HEADER || "X-API-KEY"
+const API_KEY_HEADER = process.env.API_KEY_HEADER || "X-API-KEY"  
 const ALLOW_SELF_SIGNED_CERT = process.env.ALLOW_SELF_SIGNED_CERT === "true"
 
 // Allow self-signed certificates in development

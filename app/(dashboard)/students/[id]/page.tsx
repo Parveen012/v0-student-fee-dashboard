@@ -63,7 +63,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
-  discountsApi,
+  discountPoliciesApi,
   feeComponentsApi,
   finesApi,
   parentsApi,
@@ -75,7 +75,7 @@ import {
   studentsApi,
 } from "@/lib/api"
 import type {
-  Discount,
+  DiscountPolicy,
   FeeComponent,
   Fine,
   Parent,
@@ -83,7 +83,7 @@ import type {
   Student,
   StudentDiscount,
   StudentFee,
-  StudentFine,
+  // StudentFine,
   StudentParent,
 } from "@/lib/types"
 
@@ -164,8 +164,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [studentPayments, setStudentPayments] = useState<Payment[]>([])
   const [studentParentsList, setStudentParentsList] = useState<StudentParent[]>([])
   const [studentDiscountsList, setStudentDiscountsList] = useState<StudentDiscount[]>([])
-  const [studentFinesList, setStudentFinesList] = useState<StudentFine[]>([])
-  const [discounts, setDiscounts] = useState<Discount[]>([])
+  // const [studentFinesList, setStudentFinesList] = useState<StudentFine[]>([])
+  const [discountPolicies, setDiscountPolicies] = useState<DiscountPolicy[]>([])
   const [fines, setFines] = useState<Fine[]>([])
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -217,20 +217,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         studentParentsData,
         parentsData,
         paymentsData,
-        discountsData,
+        discountPoliciesData,
         finesData,
         studentDiscountsData,
-        studentFinesData,
+        // studentFinesData,
         feeComponentsData,
       ] = await Promise.all([
         studentsApi.getById(studentId),
         studentParentsApi.getByStudentId(studentId),
         parentsApi.getAll(),
         paymentsApi.getAll(),
-        discountsApi.getAll(),
+        discountPoliciesApi.getAll(),
         finesApi.getAll(),
         studentDiscountsApi.getAll(),
-        studentFinesApi.getAll(),
+        // studentFinesApi.getAll(),
         feeComponentsApi.getAll(),
       ])
 
@@ -241,7 +241,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         // Keep fallback to embedded studentFees when dedicated endpoint is unavailable.
       }
 
-      const discountMap = new Map(discountsData.map((discount) => [discount.id, discount]))
+      const discountPolicyMap = new Map(discountPoliciesData.map((policy) => [policy.id, policy]))
       const fineMap = new Map(finesData.map((fine) => [fine.id, fine]))
       const parentMap = new Map(parentsData.map((parent) => [parent.id, parent]))
 
@@ -259,19 +259,19 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
           .filter((sd) => sd.studentId === studentId)
           .map((sd) => ({
             ...sd,
-            discount: sd.discount || discountMap.get(sd.discountId),
+            discountPolicy: sd.discountPolicy || discountPolicyMap.get(sd.discountPolicyId),
           }))
       )
-      setStudentFinesList(
-        studentFinesData
-          .filter((sf) => sf.studentId === studentId)
-          .map((sf) => ({
-            ...sf,
-            fine: sf.fine || fineMap.get(sf.fineId),
-          }))
-      )
-      setDiscounts(discountsData)
-      setFines(finesData)
+      // setStudentFinesList(
+      //   studentFinesData
+      //     .filter((sf) => sf.studentId === studentId)
+      //     .map((sf) => ({
+      //       ...sf,
+      //       fine: sf.fine || fineMap.get(sf.fineId),
+      //     }))
+      // )
+      setDiscountPolicies(discountPoliciesData)
+      // setFines(finesData)
       setFeeComponents(feeComponentsData)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load student details.")
@@ -307,36 +307,36 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     }
   }, [feeComponents, studentFee])
 
-  const feePayerParent = useMemo(() => {
-    const isFeePayer = (relation: StudentParent) =>
-      relation.isFeePayer === true || relation.IsFeePayer === true
+  const getParentMobile = useCallback(
+    (parent?: Parent) => parent?.mobile || parent?.phone || "N/A",
+    []
+  )
 
-    const relation =
-      studentParentsList.find(isFeePayer) ||
-      studentParentsList[0]
+  const primaryParent = useMemo(() => {
+    const relation = studentParentsList[0]
 
     if (!relation) return null
 
     return {
-      relation: relation.relation || relation.relationship || "Guardian",
+      relation: relation.relationType || relation.relation || relation.relationship || "Guardian",
       parent: relation.parent,
     }
   }, [studentParentsList])
 
   const parentDetails: { name: string; phone: string; email: string; relation?: string } = useMemo(() => {
-    if (feePayerParent?.parent) {
+    if (primaryParent?.parent) {
       return {
-        name: feePayerParent.parent.name,
-        phone: feePayerParent.parent.phone,
-        email: feePayerParent.parent.email,
-        relation: feePayerParent.relation,
+        name: primaryParent.parent.name,
+        phone: getParentMobile(primaryParent.parent),
+        email: primaryParent.parent.email,
+        relation: primaryParent.relation,
       }
     }
 
     if (student?.parent) {
       return {
         name: student.parent.name,
-        phone: student.parent.phone,
+        phone: getParentMobile(student.parent),
         email: student.parent.email,
       }
     }
@@ -346,18 +346,17 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       phone: "N/A",
       email: "N/A",
     }
-  }, [feePayerParent, student])
+  }, [getParentMobile, primaryParent, student])
 
   const linkedParents = useMemo(() => {
     return studentParentsList.map((relation) => ({
       id: relation.id,
       name: relation.parent?.name || `Parent ${relation.parentId}`,
-      phone: relation.parent?.phone || "N/A",
+      phone: getParentMobile(relation.parent),
       email: relation.parent?.email || "N/A",
-      relation: relation.relation || relation.relationship || "Guardian",
-      isFeePayer: relation.isFeePayer === true || relation.IsFeePayer === true,
+      relation: relation.relationType || relation.relation || relation.relationship || "Guardian",
     }))
-  }, [studentParentsList])
+  }, [getParentMobile, studentParentsList])
   
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading student details...</div>
@@ -385,6 +384,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       </div>
     )
   }
+
+  const classLabel = student.class
+    ? `${student.class.name} - ${student.class.section}`
+    : student.className && student.classSection
+    ? `${student.className} - ${student.classSection}`
+    : student.className || "N/A"
 
   const collectionProgress =
     studentFee && studentFee.netAmount > 0 ? (studentFee.paidAmount / studentFee.netAmount) * 100 : 0
@@ -434,14 +439,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   // Handle discount application
   const handleDiscountSubmit = async () => {
     if (!selectedDiscountId) {
-      toast.error("Please select a discount type")
+      toast.error("Please select a discount policy")
       return
     }
 
     try {
       await studentDiscountsApi.create({
         studentId: student.id,
-        discountId: Number(selectedDiscountId),
+        discountPolicyId: Number(selectedDiscountId),
         reason: discountReason,
       })
       toast.success("Discount applied successfully")
@@ -462,12 +467,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     }
 
     try {
-      await studentFinesApi.create({
-        studentId: student.id,
-        fineId: Number(selectedFineId),
-        installmentId: selectedFineInstallmentId,
-        isPaid: false,
-      })
+      // await studentFinesApi.create({
+      //   studentId: student.id,
+      //   fineId: Number(selectedFineId),
+      //   installmentId: selectedFineInstallmentId,
+      //   isPaid: false,
+      // })
       toast.success("Fine applied successfully")
       setFineDialogOpen(false)
       setSelectedFineId("")
@@ -521,7 +526,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <div className="flex items-center gap-2 mt-2">
                   <Badge variant="outline" className="bg-primary/5">
                     <GraduationCap className="h-3 w-3 mr-1" />
-                    {student.class?.name} - {student.class?.section}
+                    {classLabel}
                   </Badge>
                   <StatusBadge status={studentFee?.status || "unpaid"} />
                 </div>
@@ -535,7 +540,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 </p>
                 <p className="font-medium">{parentDetails.name}</p>
                 {parentDetails.relation && (
-                  <p className="text-xs text-muted-foreground">{parentDetails.relation} • Fee Payer</p>
+                  <p className="text-xs text-muted-foreground">{parentDetails.relation}</p>
                 )}
               </div>
               <div className="space-y-1">
@@ -555,6 +560,34 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   <Calendar className="h-3 w-3" /> Admission
                 </p>
                 <p className="font-medium">{formatDate(student.admissionDate)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Admission No</p>
+                <p className="font-medium">{student.admissionNo || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Roll No</p>
+                <p className="font-medium">{student.rollNo || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Student Email</p>
+                <p className="font-medium text-sm">{student.email || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Student Mobile</p>
+                <p className="font-medium">{student.mobile || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Session</p>
+                <p className="font-medium">{student.sessionName || (student.sessionId ? `Session ${student.sessionId}` : "N/A")}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Transport</p>
+                <p className="font-medium">{student.isTransportOpted ? "Yes" : "No"}</p>
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <p className="text-sm text-muted-foreground">Address</p>
+                <p className="font-medium">{student.address || "N/A"}</p>
               </div>
             </div>
           </div>
@@ -580,7 +613,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     <TableHead>Relation</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Fee Payer</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -590,13 +622,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                       <TableCell>{parent.relation}</TableCell>
                       <TableCell>{parent.phone}</TableCell>
                       <TableCell>{parent.email}</TableCell>
-                      <TableCell>
-                        {parent.isFeePayer ? (
-                          <Badge className="bg-success/10 text-success hover:bg-success/10">Yes</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">No</span>
-                        )}
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -637,7 +662,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
               <CardContent>
                 <p className="text-xs text-muted-foreground">
                   After discount (-{formatCurrency(studentFee.discountAmount)})
-                  {studentFee.fineAmount > 0 && ` + fine (+${formatCurrency(studentFee.fineAmount)})`}
+                  {/* {studentFee.fineAmount > 0 && ` + fine (+${formatCurrency(studentFee.fineAmount)})`} */}
                 </p>
               </CardContent>
             </Card>
@@ -929,16 +954,22 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     {studentDiscountsList.map((sd) => (
                       <div key={sd.id} className="flex items-center justify-between p-3 rounded-lg border bg-success/5 border-success/20">
                         <div>
-                          <p className="font-medium">{sd.discount?.name}</p>
+                          <p className="font-medium">
+                            {sd.discountPolicy?.isPercentage 
+                              ? `${sd.discountPolicy?.percentage}% Discount` 
+                              : `${formatCurrency(sd.discountPolicy?.amount || 0)} Discount`}
+                          </p>
                           <p className="text-sm text-muted-foreground">{sd.reason}</p>
                         </div>
                         <div className="text-right">
                           <p className="font-semibold text-success">
-                            -{formatCurrency(sd.appliedAmount || 0)}
+                            -{sd.discountPolicy?.isPercentage 
+                              ? `${sd.discountPolicy?.percentage}%` 
+                              : formatCurrency(sd.discountPolicy?.amount || 0)}
                           </p>
-                          {sd.discount?.isPercentage && (
+                          {sd.discountPolicy?.startDate && (
                             <p className="text-xs text-muted-foreground">
-                              {sd.discount.amountOrPercentage}% off
+                              Valid till {new Date(sd.discountPolicy.endDate || "").toLocaleDateString()}
                             </p>
                           )}
                         </div>
@@ -966,7 +997,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent>
+              {/* <CardContent>
                 {studentFinesList.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -974,7 +1005,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {studentFinesList.map((sf) => {
+                    { {studentFinesList.map((sf) => {
                       const installment = studentFee.installments?.find(i => i.id === sf.installmentId)
                       return (
                         <div key={sf.id} className="flex items-center justify-between p-3 rounded-lg border bg-destructive/5 border-destructive/20">
@@ -995,10 +1026,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                           </div>
                         </div>
                       )
-                    })}
+                    })} }
                   </div>
                 )}
-              </CardContent>
+              </CardContent> */}
             </Card>
           </div>
         </TabsContent>
@@ -1145,15 +1176,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Discount Type</Label>
+              <Label>Discount Policy</Label>
               <Select value={selectedDiscountId} onValueChange={setSelectedDiscountId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select discount type" />
+                  <SelectValue placeholder="Select discount policy" />
                 </SelectTrigger>
                 <SelectContent>
-                  {discounts.map((d) => (
-                    <SelectItem key={d.id} value={d.id.toString()}>
-                      {d.name} ({d.isPercentage ? `${d.amountOrPercentage}%` : formatCurrency(d.amountOrPercentage)})
+                  {discountPolicies.map((policy) => (
+                    <SelectItem key={policy.id} value={policy.id.toString()}>
+                      {policy.isPercentage 
+                        ? `${policy.percentage}%` 
+                        : formatCurrency(policy.amount || 0)}
+                      {policy.startDate && policy.endDate ? 
+                        ` (${new Date(policy.startDate).toLocaleDateString()} - ${new Date(policy.endDate).toLocaleDateString()})` 
+                        : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

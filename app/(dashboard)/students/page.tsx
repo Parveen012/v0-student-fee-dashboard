@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -34,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table,
   TableBody,
@@ -43,8 +45,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { StatusBadge } from "@/components/status-badge"
-import { classesApi, studentFeesApi, studentsApi } from "@/lib/api"
-import type { Class, CreateStudentCommand, Student, StudentFee } from "@/lib/types"
+import { classesApi, sessionsApi, studentFeesApi, studentsApi } from "@/lib/api"
+import type { Class, CreateStudentCommand, Session, Student, StudentFee } from "@/lib/types"
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -62,28 +64,38 @@ export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [studentFees, setStudentFees] = useState<StudentFee[]>([])
   const [classes, setClasses] = useState<Class[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newStudent, setNewStudent] = useState({
+    sessionId: "",
+    admissionNo: "",
+    rollNo: "",
     firstName: "",
     lastName: "",
     classId: "",
     gender: "",
     dob: "",
     admissionDate: "",
+    address: "",
+    mobile: "",
+    email: "",
+    isTransportOpted: false,
   })
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const [studentsData, classesData, feesData] = await Promise.all([
+      const [studentsData, classesData, sessionsData, feesData] = await Promise.all([
         studentsApi.getAll(),
         classesApi.getAll(),
+        sessionsApi.getAll(),
         studentFeesApi.getAll().catch(() => []),
       ])
       setStudents(studentsData)
       setClasses(classesData)
+      setSessions(sessionsData)
       setStudentFees(
         feesData.length > 0 ? feesData : studentsData.flatMap((student) => student.studentFees || [])
       )
@@ -104,10 +116,17 @@ export default function StudentsPage() {
     return students.map((student) => {
       const fee = feeMap.get(student.id)
       const classInfo = student.class || (student.classId ? classMap.get(student.classId) : undefined)
+      const classLabel = classInfo
+        ? `${classInfo.name}-${classInfo.section}`
+        : student.className && student.classSection
+        ? `${student.className}-${student.classSection}`
+        : student.className
+        ? student.className
+        : "N/A"
       return {
         student,
         fee,
-        className: classInfo ? `${classInfo.name}-${classInfo.section}` : "N/A",
+        className: classLabel,
       }
     })
   }, [classes, studentFees, students])
@@ -117,7 +136,17 @@ export default function StudentsPage() {
     return rows.filter(({ student, fee, className }) => {
       const name = `${student.firstName} ${student.lastName}`.toLowerCase()
       const code = `STU${String(student.id).padStart(3, "0")}`.toLowerCase()
-      const matchesSearch = name.includes(query) || code.includes(query)
+      const admissionNo = student.admissionNo?.toLowerCase() || ""
+      const rollNo = student.rollNo?.toLowerCase() || ""
+      const email = student.email?.toLowerCase() || ""
+      const mobile = student.mobile?.toLowerCase() || ""
+      const matchesSearch =
+        name.includes(query) ||
+        code.includes(query) ||
+        admissionNo.includes(query) ||
+        rollNo.includes(query) ||
+        email.includes(query) ||
+        mobile.includes(query)
       const matchesClass = classFilter === "all" || className === classFilter
       const matchesStatus = statusFilter === "all" || (fee?.status || "unpaid") === statusFilter
       return matchesSearch && matchesClass && matchesStatus
@@ -138,17 +167,35 @@ export default function StudentsPage() {
 
   const handleAddStudent = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!newStudent.firstName || !newStudent.lastName || !newStudent.classId || !newStudent.gender) {
+    if (
+      !newStudent.sessionId ||
+      !newStudent.admissionNo ||
+      !newStudent.rollNo ||
+      !newStudent.firstName ||
+      !newStudent.lastName ||
+      !newStudent.classId ||
+      !newStudent.gender ||
+      !newStudent.address ||
+      !newStudent.mobile ||
+      !newStudent.email
+    ) {
       toast.error("Please fill all required student fields.")
       return
     }
 
     const payload: CreateStudentCommand = {
+      sessionId: Number(newStudent.sessionId),
+      admissionNo: newStudent.admissionNo,
+      rollNo: newStudent.rollNo,
       firstName: newStudent.firstName,
       lastName: newStudent.lastName,
       dob: newStudent.dob ? new Date(newStudent.dob).toISOString() : null,
       gender: newStudent.gender,
       classId: Number(newStudent.classId),
+      address: newStudent.address,
+      mobile: newStudent.mobile,
+      email: newStudent.email,
+      isTransportOpted: newStudent.isTransportOpted,
       admissionDate: newStudent.admissionDate
         ? new Date(newStudent.admissionDate).toISOString()
         : new Date().toISOString(),
@@ -159,7 +206,21 @@ export default function StudentsPage() {
       await studentsApi.create(payload)
       toast.success("Student added successfully")
       setIsAddDialogOpen(false)
-      setNewStudent({ firstName: "", lastName: "", classId: "", gender: "", dob: "", admissionDate: "" })
+      setNewStudent({
+        sessionId: "",
+        admissionNo: "",
+        rollNo: "",
+        firstName: "",
+        lastName: "",
+        classId: "",
+        gender: "",
+        dob: "",
+        admissionDate: "",
+        address: "",
+        mobile: "",
+        email: "",
+        isTransportOpted: false,
+      })
       await loadData()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add student.")
@@ -194,6 +255,27 @@ export default function StudentsPage() {
             </DialogHeader>
             <form onSubmit={handleAddStudent}>
               <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Session</Label>
+                  <Select value={newStudent.sessionId} onValueChange={(value) => setNewStudent((prev) => ({ ...prev, sessionId: value }))} required>
+                    <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
+                    <SelectContent>
+                      {sessions.map((session) => (
+                        <SelectItem key={session.id} value={session.id.toString()}>{session.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="admissionNo">Admission No</Label>
+                    <Input id="admissionNo" value={newStudent.admissionNo} onChange={(e) => setNewStudent((prev) => ({ ...prev, admissionNo: e.target.value }))} required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="rollNo">Roll No</Label>
+                    <Input id="rollNo" value={newStudent.rollNo} onChange={(e) => setNewStudent((prev) => ({ ...prev, rollNo: e.target.value }))} required />
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="firstName">First Name</Label>
@@ -202,6 +284,16 @@ export default function StudentsPage() {
                   <div className="grid gap-2">
                     <Label htmlFor="lastName">Last Name</Label>
                     <Input id="lastName" value={newStudent.lastName} onChange={(e) => setNewStudent((prev) => ({ ...prev, lastName: e.target.value }))} required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" value={newStudent.email} onChange={(e) => setNewStudent((prev) => ({ ...prev, email: e.target.value }))} required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="mobile">Mobile</Label>
+                    <Input id="mobile" value={newStudent.mobile} onChange={(e) => setNewStudent((prev) => ({ ...prev, mobile: e.target.value }))} required />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -229,12 +321,23 @@ export default function StudentsPage() {
                   </div>
                 </div>
                 <div className="grid gap-3 ">
-                <Label>Date of Birth</Label>
-                <Input type="date" value={newStudent.dob} onChange={(e) => setNewStudent((prev) => ({ ...prev, dob: e.target.value }))} required />
+                  <Label>Date of Birth</Label>
+                  <Input type="date" value={newStudent.dob} onChange={(e) => setNewStudent((prev) => ({ ...prev, dob: e.target.value }))} required />
                 </div>
                 <div className="grid gap-2">
                   <Label>Admission Date</Label>
                   <Input type="date" value={newStudent.admissionDate} onChange={(e) => setNewStudent((prev) => ({ ...prev, admissionDate: e.target.value }))} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Textarea id="address" value={newStudent.address} onChange={(e) => setNewStudent((prev) => ({ ...prev, address: e.target.value }))} required />
+                </div>
+                <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+                  <div>
+                    <Label className="text-sm">Transport Opted</Label>
+                    <p className="text-xs text-muted-foreground">Enable if the student uses transport services.</p>
+                  </div>
+                  <Switch checked={newStudent.isTransportOpted} onCheckedChange={(checked) => setNewStudent((prev) => ({ ...prev, isTransportOpted: checked }))} />
                 </div>
               </div>
               <DialogFooter>
@@ -316,7 +419,10 @@ export default function StudentsPage() {
                         <TableCell>
                           <Link href={`/students/${student.id}`} className="block hover:underline">
                             <span className="font-medium">{student.firstName} {student.lastName}</span>
-                            <span className="block text-xs text-muted-foreground">STU{String(student.id).padStart(3, "0")}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {student.admissionNo || `STU${String(student.id).padStart(3, "0")}`}
+                              {student.rollNo ? ` • Roll ${student.rollNo}` : ""}
+                            </span>
                           </Link>
                         </TableCell>
                         <TableCell>{className}</TableCell>
@@ -333,7 +439,7 @@ export default function StudentsPage() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem asChild><Link href={`/students/${student.id}`}><Eye className="mr-2 size-4" />View Details</Link></DropdownMenuItem>
                               <DropdownMenuItem onClick={() => toast.info("Reminder action is ready for backend messaging.")}><Mail className="mr-2 size-4" />Send Reminder</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => toast.info(student.parent?.phone || "No parent phone available.")}><Phone className="mr-2 size-4" />Call Parent</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => toast.info(student.parent?.mobile || student.parent?.phone || "No parent phone available.")}><Phone className="mr-2 size-4" />Call Parent</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteStudent(student)}><Trash2 className="mr-2 size-4" />Delete Student</DropdownMenuItem>
                             </DropdownMenuContent>

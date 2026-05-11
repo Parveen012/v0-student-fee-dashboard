@@ -27,13 +27,21 @@ export interface Parent {
   id: number
   tenantId: number
   name: string
-  phone: string
+  mobile: string
+  alternateMobile?: string
+  occupation?: string
+  address?: string
+  phone?: string
   email: string
 }
 
 export interface Student {
   id: number
   tenantId: number
+  sessionId?: number
+  sessionName?: string
+  admissionNo?: string
+  rollNo?: string
   firstName: string
   lastName: string
   dob: string | null
@@ -42,6 +50,10 @@ export interface Student {
   className?: string
   classSection?: string
   admissionDate: string
+  address?: string
+  mobile?: string
+  email?: string
+  isTransportOpted?: boolean
   status: "active" | "inactive" | "graduated" | "transferred"
   class?: Class
   parent?: Parent
@@ -58,6 +70,7 @@ export interface StudentParent {
   tenantId?: number
   studentId: number
   parentId: number
+  relationType?: StudentParentRelation | string
   relation: StudentParentRelation | string
   relationship?: StudentParentRelation | string
   isFeePayer?: boolean
@@ -70,7 +83,11 @@ export interface FeeComponent {
   id: number
   tenantId: number
   name: string
-  type: string
+  code?: string
+  frequency?: string
+  isOptional?: boolean
+  isTransportRelated?: boolean
+  description?: string
 }
 
 export interface FeeStructure {
@@ -78,17 +95,26 @@ export interface FeeStructure {
   tenantId: number
   classId: number
   sessionId: number
+  name: string
+  effectiveFrom: string
+  effectiveTo: string
   class?: Class
   session?: Session
   feeStructureComponents?: FeeStructureComponent[]
+  classFeeStructureComponents?: FeeStructureComponent[]
 }
 
 export interface FeeStructureComponent {
   id: number
-  feeStructureId: number
+  feeStructureId?: number
+  classFeeStructureId?: number
   feeComponentId: number
   amount: number
+  gstPercent?: number
+  dueDay?: number
+  finePolicyId?: number
   feeComponent?: FeeComponent
+  finePolicy?: FinePolicy
 }
 
 export interface StudentFee {
@@ -140,6 +166,27 @@ export interface Payment {
   installment?: Installment
 }
 
+export interface DiscountType {
+  id: number
+  tenantId: number
+  name: string
+  isAutoApply: boolean
+  description?: string
+  discountPolicies?: DiscountPolicy[]
+}
+
+export interface DiscountPolicy {
+  id: number
+  tenantId: number
+  discountTypeId: number
+  amount?: number
+  percentage?: number
+  isPercentage: boolean
+  startDate: string
+  endDate: string
+  discountType?: DiscountType
+}
+
 export interface Discount {
   id: number
   tenantId: number
@@ -159,11 +206,12 @@ export interface DiscountWithType extends Discount {
 export interface StudentDiscount {
   id: number
   studentId: number
-  discountId: number
-  reason: string
-  appliedAmount?: number
+  discountPolicyId: number
+  approvedBy?: number
+  reason?: string
+  appliedDate?: string
   student?: Student
-  discount?: Discount
+  discountPolicy?: DiscountPolicy
 }
 
 export interface Fine {
@@ -172,6 +220,19 @@ export interface Fine {
   name: string
   amount: number
   gracePeriodDays: number
+}
+
+export interface FinePolicy {
+  id: number
+  tenantId: number
+  name: string
+  fineType: string
+  amount?: number
+  isPercentage?: boolean
+  graceDays?: number
+  maxFineAmount?: number
+  percentage?: number
+  description?: string
 }
 
 export interface StudentFine {
@@ -241,17 +302,48 @@ export interface CreateDiscountCommand {
   discountType?: DiscountCategory | string
 }
 
+export interface CreateDiscountTypeCommand {
+  tenantId?: number
+  name: string
+  isAutoApply: boolean
+  description?: string
+}
+
+export interface CreateDiscountPolicyCommand {
+  tenantId?: number
+  discountTypeId: number
+  amount?: number
+  percentage?: number
+  isPercentage: boolean
+  startDate: string
+  endDate: string
+}
+
+export interface CreateStudentDiscountCommand {
+  tenantId?: number
+  studentId: number
+  discountPolicyId: number
+  approvedBy?: number
+  reason?: string
+}
 
 export interface CreateFeeComponentCommand {
   tenantId?: number
   name: string
-  type: string
+  code: string
+  frequency: string
+  isOptional: boolean
+  isTransportRelated: boolean
+  description: string
 }
 
 export interface CreateFeeStructureCommand {
   tenantId?: number
   classId: number
   sessionId: number
+  name: string
+  effectiveFrom: string
+  effectiveTo: string
 }
 
 export interface GenerateFeeStructureCommand {
@@ -279,10 +371,23 @@ export interface CreateFineCommand {
   gracePeriodDays: number
 }
 
+export interface CreateClassFeeStructureComponentCommand {
+  tenantId?: number
+  classFeeStructureId: number
+  feeComponentId: number
+  amount: number
+  gstPercent?: number
+  dueDay?: number
+  finePolicyId?: number
+}
+
 export interface CreateParentCommand {
   tenantId?: number
   name: string
-  phone: string
+  mobile: string
+  alternateMobile: string
+  occupation: string
+  address: string
   email: string
 }
 
@@ -290,9 +395,7 @@ export interface CreateStudentParentCommand {
   tenantId?: number
   studentId: number
   parentId: number
-  relation: StudentParentRelation
-  relationship?: StudentParentRelation
-  isFeePayer: boolean
+  relationType: StudentParentRelation
 }
 
 export interface CreatePaymentCommand {
@@ -330,23 +433,23 @@ export interface CreateSessionCommand {
 
 export interface CreateStudentCommand {
   tenantId?: number
+  sessionId: number
+  admissionNo: string
+  rollNo: string
   firstName: string
   lastName: string
   dob: string | null
   gender: string
   classId: number | null
+  address: string
+  mobile: string
+  email: string
+  isTransportOpted: boolean
   admissionDate: string
   status: Student["status"]
 }
 
 export interface UpdateStudentCommand extends Partial<CreateStudentCommand> {}
-
-export interface CreateStudentDiscountCommand {
-  tenantId?: number
-  studentId: number
-  discountId: number
-  reason: string
-}
 
 export interface CreateStudentFineCommand {
   tenantId?: number
