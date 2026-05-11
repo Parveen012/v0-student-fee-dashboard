@@ -125,7 +125,6 @@ export default function DiscountsPage() {
       }, 0),
     }
   }, [discountPolicies, discountTypes, studentDiscounts])
-
   const handleCreateType = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newType.name) {

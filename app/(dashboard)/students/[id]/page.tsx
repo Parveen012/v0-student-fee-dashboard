@@ -155,6 +155,20 @@ function formatDate(date: string) {
   })
 }
 
+function parsePaymentPlan(value: string) {
+  if (value.startsWith("installment:")) {
+    return {
+      paymentType: "installment" as const,
+      installmentId: Number(value.split(":")[1]),
+    }
+  }
+
+  return {
+    paymentType: "full" as const,
+    installmentId: null,
+  }
+}
+
 export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const studentId = parseInt(id)
@@ -174,9 +188,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [discountDialogOpen, setDiscountDialogOpen] = useState(false)
   const [fineDialogOpen, setFineDialogOpen] = useState(false)
-  const [selectedInstallment, setSelectedInstallment] = useState<number | null>(null)
+  const [selectedPaymentPlan, setSelectedPaymentPlan] = useState("full")
   const [selectedFineInstallmentId, setSelectedFineInstallmentId] = useState<number | null>(null)
-  const [paymentType, setPaymentType] = useState<"full" | "installment">("full")
   
   // Payment form state
   const [paymentAmount, setPaymentAmount] = useState("")
@@ -195,17 +208,38 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       options?: {
         installmentId?: number | null
         amount?: string
-        paymentType?: "full" | "installment"
       }
     ) => {
       const nextInstallmentId = options?.installmentId ?? null
-      setSelectedInstallment(nextInstallmentId)
+      setSelectedPaymentPlan(nextInstallmentId ? `installment:${nextInstallmentId}` : "full")
       setPaymentAmount(options?.amount ?? "")
-      setPaymentType(options?.paymentType ?? (nextInstallmentId ? "installment" : "full"))
       setTransactionId("")
       setPaymentDialogOpen(true)
     },
     []
+  )
+
+  const paymentPlanOptions = useMemo(() => {
+    if (!studentFee) return []
+
+    const installments = studentFee.installments || []
+    return [
+      {
+        value: "full",
+        label: `Full Payment - Balance: ${formatCurrency(studentFee.balance)}`,
+        amount: studentFee.balance,
+      },
+      ...installments.map((installment) => ({
+        value: `installment:${installment.id}`,
+        label: `${installment.name} - Balance: ${formatCurrency(installment.balance)}`,
+        amount: installment.balance,
+      })),
+    ]
+  }, [studentFee])
+
+  const selectedPaymentPlanOption = useMemo(
+    () => paymentPlanOptions.find((option) => option.value === selectedPaymentPlan),
+    [paymentPlanOptions, selectedPaymentPlan]
   )
   
   const loadStudentData = useCallback(async () => {
@@ -402,23 +436,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       return
     }
 
-    if (paymentType === "installment" && !selectedInstallment) {
-      toast.error("Please select an installment for installment payments.")
-      return
-    }
-
     if (!studentFee) {
       toast.error("Fee data is not available for this student.")
       return
     }
 
+    const selectedPlan = parsePaymentPlan(selectedPaymentPlan)
+
     try {
       await paymentsApi.create({
         studentFeeId: studentFee.id,
-        installmentId: paymentType === "installment" ? selectedInstallment : null,
+        installmentId: selectedPlan.installmentId,
         amountPaid: amount,
         paymentDate: new Date().toISOString(),
-        paymentType,
+        paymentType: selectedPlan.paymentType,
         mode: paymentMode,
         transactionId: transactionId || null,
         studentId: student.id,
@@ -428,8 +459,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       setPaymentDialogOpen(false)
       setPaymentAmount("")
       setTransactionId("")
-      setSelectedInstallment(null)
-      setPaymentType("full")
+      setSelectedPaymentPlan("full")
       await loadStudentData()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment.")
@@ -689,7 +719,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <Button 
                   size="sm" 
                   className="w-full"
-                  onClick={() => openPaymentDialog({ amount: studentFee.balance.toString(), paymentType: "full" })}
+                  onClick={() => openPaymentDialog({ amount: studentFee.balance.toString() })}
                   disabled={studentFee.balance <= 0}
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
@@ -758,7 +788,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               openPaymentDialog({
                                 installmentId: installment.id,
                                 amount: installment.balance.toString(),
-                                paymentType: "installment",
                               })
                             }}
                           >
@@ -788,7 +817,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   <CardTitle>Payment History</CardTitle>
                   <CardDescription>All payments made by this student</CardDescription>
                 </div>
-                <Button size="sm" onClick={() => openPaymentDialog({ amount: studentFee.balance.toString(), paymentType: "full" })}>
+                <Button size="sm" onClick={() => openPaymentDialog({ amount: studentFee.balance.toString() })}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Payment
                 </Button>
@@ -1049,23 +1078,26 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Payment Type</Label>
+              <Label>Payment Plan</Label>
               <Select
-                value={paymentType}
+                value={selectedPaymentPlan}
                 onValueChange={(value) => {
-                  const nextType = value as "full" | "installment"
-                  setPaymentType(nextType)
-                  if (nextType === "full") {
-                    setSelectedInstallment(null)
+                  setSelectedPaymentPlan(value)
+                  const nextOption = paymentPlanOptions.find((option) => option.value === value)
+                  if (nextOption) {
+                    setPaymentAmount(nextOption.amount.toString())
                   }
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select payment plan" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="full">Full Payment</SelectItem>
-                  <SelectItem value="installment">Installment Payment</SelectItem>
+                  {paymentPlanOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1086,27 +1118,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 Balance due: {formatCurrency(studentFee.balance)}
               </p>
             </div>
-
-            {paymentType === "installment" && (
-              <div className="space-y-2">
-                <Label>Installment</Label>
-                <Select
-                  value={selectedInstallment ? selectedInstallment.toString() : ""}
-                  onValueChange={(value) => setSelectedInstallment(Number(value))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select installment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {studentFee.installments?.map((installment) => (
-                      <SelectItem key={installment.id} value={installment.id.toString()}>
-                        {installment.name} - {formatCurrency(installment.balance)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             
             <div className="space-y-2">
               <Label>Payment Mode</Label>
@@ -1134,10 +1145,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
               />
             </div>
             
-            {selectedInstallment && (
+            {selectedPaymentPlanOption && selectedPaymentPlanOption.value !== "full" && (
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm font-medium">
-                  Paying for: {studentFee.installments?.find(i => i.id === selectedInstallment)?.name}
+                  Paying for: {selectedPaymentPlanOption.label}
                 </p>
               </div>
             )}

@@ -68,14 +68,27 @@ function feeRemaining(fee: StudentFee) {
   return fee.remainingAmount ?? fee.balance
 }
 
+function parsePaymentPlan(value: string) {
+  if (value.startsWith("installment:")) {
+    return {
+      paymentType: "installment" as const,
+      installmentId: Number(value.split(":")[1]),
+    }
+  }
+
+  return {
+    paymentType: "full" as const,
+    installmentId: null,
+  }
+}
+
 export default function PaymentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [selectedStudentId, setSelectedStudentId] = useState("")
   const [studentFee, setStudentFee] = useState<StudentFee | null>(null)
-  const [selectedInstallments, setSelectedInstallments] = useState<number[]>([])
   const [amountPaid, setAmountPaid] = useState("")
-  const [paymentType, setPaymentType] = useState<"full" | "installment">("full")
+  const [selectedPaymentPlan, setSelectedPaymentPlan] = useState("full")
   const [paymentMode, setPaymentMode] = useState("upi")
   const [transactionId, setTransactionId] = useState("")
   const [groupStudentIds, setGroupStudentIds] = useState<number[]>([])
@@ -88,6 +101,29 @@ export default function PaymentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [feeError, setFeeError] = useState<string | null>(null)
+
+  const paymentPlanOptions = useMemo(() => {
+    if (!studentFee) return []
+
+    const installments = studentFee.installments || []
+    return [
+      {
+        value: "full",
+        label: `Full Payment - Balance: ${formatCurrency(studentFee.balance)}`,
+        amount: studentFee.balance,
+      },
+      ...installments.map((installment) => ({
+        value: `installment:${installment.id}`,
+        label: `${installment.name} - Balance: ${formatCurrency(installment.balance)}`,
+        amount: installment.balance,
+      })),
+    ]
+  }, [studentFee])
+
+  const selectedPaymentPlanOption = useMemo(
+    () => paymentPlanOptions.find((option) => option.value === selectedPaymentPlan),
+    [paymentPlanOptions, selectedPaymentPlan]
+  )
 
   const loadBaseData = useCallback(async () => {
     setIsLoading(true)
@@ -120,14 +156,20 @@ export default function PaymentsPage() {
     try {
       const data = await studentFeesApi.getByStudentId(Number(studentId))
       setStudentFee(data)
-      setSelectedInstallments([])
-      setPaymentType("full")
+      setSelectedPaymentPlan("full")
+      setAmountPaid(data.balance.toString())
     } catch (err) {
-      const fallbackFee = students.find((student) => student.id === Number(studentId))?.studentFees?.[0]
+      const fallbackStudent = students.find((student) => student.id === Number(studentId))
+      const fallbackFee =
+        fallbackStudent?.studentFees?.find((fee) => fee.studentId === Number(studentId)) ||
+        fallbackStudent?.studentFees?.[0]
       if (fallbackFee) {
-        setStudentFee(fallbackFee)
-        setSelectedInstallments([])
-        setPaymentType("full")
+        setStudentFee({
+          ...fallbackFee,
+          installments: fallbackFee.installments?.length ? fallbackFee.installments : fallbackStudent?.studentFees?.[0]?.installments || [],
+        })
+        setSelectedPaymentPlan("full")
+        setAmountPaid(fallbackFee.balance.toString())
         setFeeError(null)
       } else {
         setStudentFee(null)
@@ -162,17 +204,6 @@ export default function PaymentsPage() {
     })
   }, [payments, searchQuery, studentMap])
 
-  const toggleInstallment = (installment: Installment) => {
-    setSelectedInstallments((prev) => {
-      const next = prev.includes(installment.id)
-        ? prev.filter((id) => id !== installment.id)
-        : [...prev, installment.id]
-
-      setPaymentType(next.length > 0 ? "installment" : "full")
-      return next
-    })
-  }
-
   const handleSinglePayment = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!selectedStudent || !studentFee) {
@@ -186,10 +217,7 @@ export default function PaymentsPage() {
       return
     }
 
-    if (paymentType === "installment" && selectedInstallments.length === 0) {
-      toast.error("Please select at least one installment for installment payments.")
-      return
-    }
+    const selectedPlan = parsePaymentPlan(selectedPaymentPlan)
 
     setIsSubmitting(true)
     try {
@@ -198,16 +226,16 @@ export default function PaymentsPage() {
         tenantId: selectedStudent.tenantId,
         studentFeeId: studentFee.id,
         amountPaid: amount,
-        paymentType,
+        paymentType: selectedPlan.paymentType,
         mode: paymentMode,
         transactionId: transactionId || null,
-        installments: paymentType === "installment" ? selectedInstallments : [],
+        installmentId: selectedPlan.installmentId,
+        installments: selectedPlan.installmentId ? [selectedPlan.installmentId] : [],
       })
       toast.success("Payment recorded successfully")
       setAmountPaid("")
       setTransactionId("")
-      setSelectedInstallments([])
-      setPaymentType("full")
+      setSelectedPaymentPlan("full")
       await Promise.all([loadStudentFee(selectedStudentId), loadBaseData()])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment.")
@@ -331,21 +359,24 @@ export default function PaymentsPage() {
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Payment Type</Label>
+                    <Label>Payment Plan</Label>
                     <Select
-                      value={paymentType}
+                      value={selectedPaymentPlan}
                       onValueChange={(value) => {
-                        const nextType = value as "full" | "installment"
-                        setPaymentType(nextType)
-                        if (nextType === "full") {
-                          setSelectedInstallments([])
+                        setSelectedPaymentPlan(value)
+                        const nextOption = paymentPlanOptions.find((option) => option.value === value)
+                        if (nextOption) {
+                          setAmountPaid(nextOption.amount.toString())
                         }
                       }}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select payment plan" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="full">Full Payment</SelectItem>
-                        <SelectItem value="installment">Installment Payment</SelectItem>
+                        {paymentPlanOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -383,42 +414,15 @@ export default function PaymentsPage() {
                   </div>
                 )}
 
-                {studentFee?.installments?.length ? (
-                  <div className="rounded-lg border border-border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12"></TableHead>
-                          <TableHead>Installment</TableHead>
-                          <TableHead>Due Date</TableHead>
-                          <TableHead className="text-right">Amount</TableHead>
-                          <TableHead className="text-right">Paid</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {studentFee.installments.map((installment) => (
-                          <TableRow key={installment.id}>
-                            <TableCell>
-                              <Checkbox
-                                checked={selectedInstallments.includes(installment.id)}
-                                onCheckedChange={() => toggleInstallment(installment)}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{installment.name}</TableCell>
-                            <TableCell>{format(new Date(installment.dueDate), "dd MMM yyyy")}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(installment.amount)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(installment.paidAmount)}</TableCell>
-                            <TableCell><StatusBadge status={installment.status} /></TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                {selectedPaymentPlanOption && selectedPaymentPlanOption.value !== "full" && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                    <p className="font-medium">Selected installment</p>
+                    <p className="text-muted-foreground">{selectedPaymentPlanOption.label}</p>
                   </div>
-                ) : (
-                  selectedStudentId && !isFeeLoading && (
-                    <div className="text-sm text-muted-foreground">No installments returned for this student fee.</div>
-                  )
+                )}
+
+                {selectedStudentId && studentFee && !(studentFee.installments?.length) && !isFeeLoading && (
+                  <div className="text-sm text-muted-foreground">No installments returned for this student fee.</div>
                 )}
 
                 <div className="flex justify-end">

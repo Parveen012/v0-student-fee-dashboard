@@ -44,8 +44,23 @@ export default function InstallmentsPage() {
         studentFeesApi.getAll().catch(() => []),
       ])
       setStudents(studentsData)
+      const feeMap = new Map(feesData.map((fee) => [fee.studentId, fee]))
       setStudentFees(
-        feesData.length > 0 ? feesData : studentsData.flatMap((student) => student.studentFees || [])
+        studentsData
+          .map((student) => {
+            const embeddedFee =
+              student.studentFees?.find((fee) => fee.studentId === student.id) ||
+              student.studentFees?.[0]
+            const fee = feeMap.get(student.id) || embeddedFee
+
+            if (!fee) return null
+
+            return {
+              ...fee,
+              installments: fee.installments?.length ? fee.installments : embeddedFee?.installments || [],
+            }
+          })
+          .filter((fee): fee is StudentFee => Boolean(fee))
       )
       setClasses(classesData)
     } catch (err) {
